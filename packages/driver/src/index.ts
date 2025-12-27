@@ -7,10 +7,10 @@ export type { DebugTarget, TargetSelectionOptions } from "./cdp/discovery";
 export { discoverTargets, selectTarget } from "./cdp/discovery";
 export type { RNDeviceOptions } from "./device";
 // --- Device ---
-export { createDevice, NativeModuleRequiredError, RNDevice, TimeoutError } from "./device";
+export { createDevice, RNDevice, TimeoutError } from "./device";
 export type { Locator as LocatorType, LocatorSelector } from "./locator";
 // --- Locator ---
-export { createLocator, LocatorImpl } from "./locator";
+export { createLocator, LocatorError, LocatorImpl } from "./locator";
 // --- Pointer ---
 export { HarnessNotInstalledError, Pointer } from "./pointer";
 // --- Types ---

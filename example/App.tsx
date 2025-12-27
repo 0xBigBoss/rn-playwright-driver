@@ -11,16 +11,24 @@ export default function App() {
         RN Playwright Driver Example
       </Text>
 
-      <Text style={styles.counter} testID="counter">
+      <Text style={styles.counter} testID="count-display">
         Count: {count}
       </Text>
 
       <View style={styles.buttonRow}>
-        <Pressable style={styles.button} onPress={() => setCount((c) => c - 1)} testID="decrement">
+        <Pressable
+          style={styles.button}
+          onPress={() => setCount((c) => c - 1)}
+          testID="decrement-button"
+        >
           <Text style={styles.buttonText}>-</Text>
         </Pressable>
 
-        <Pressable style={styles.button} onPress={() => setCount((c) => c + 1)} testID="increment">
+        <Pressable
+          style={styles.button}
+          onPress={() => setCount((c) => c + 1)}
+          testID="increment-button"
+        >
           <Text style={styles.buttonText}>+</Text>
         </Pressable>
       </View>
@@ -28,7 +36,7 @@ export default function App() {
       <Pressable
         style={[styles.button, styles.resetButton]}
         onPress={() => setCount(0)}
-        testID="reset"
+        testID="reset-button"
       >
         <Text style={styles.buttonText}>Reset</Text>
       </Pressable>

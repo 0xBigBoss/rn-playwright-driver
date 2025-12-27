@@ -1,7 +1,7 @@
 import { CDPClient, type CDPClientOptions } from "./cdp/client";
 import { discoverTargets, selectTarget } from "./cdp/discovery";
 import type { Locator, LocatorSelector } from "./locator";
-import { createLocator } from "./locator";
+import { createLocator, LocatorError } from "./locator";
 import { Pointer } from "./pointer";
 import type { Device, DeviceOptions, ElementBounds } from "./types";
 
@@ -20,14 +20,9 @@ export class TimeoutError extends Error {
 }
 
 /**
- * Error thrown when a Phase 3 feature is called without native modules.
+ * Result type from native module calls.
  */
-export class NativeModuleRequiredError extends Error {
-  constructor(feature: string, module: string) {
-    super(`${feature} requires ${module} native module (Phase 3)`);
-    this.name = "NativeModuleRequiredError";
-  }
-}
+type NativeResult<T> = { success: true; data: T } | { success: false; error: string; code: string };
 
 export type RNDeviceOptions = DeviceOptions & CDPClientOptions;
 
@@ -108,26 +103,75 @@ export class RNDevice implements Device {
 
   // --- Screenshots (Phase 3) ---
 
-  async screenshot(_options?: { clip?: ElementBounds }): Promise<Buffer> {
-    throw new NativeModuleRequiredError("screenshot()", "RNDriverScreenshot");
+  async screenshot(options?: { clip?: ElementBounds }): Promise<Buffer> {
+    let result: NativeResult<string>;
+
+    if (options?.clip) {
+      // Capture specific region
+      const { x, y, width, height } = options.clip;
+      result = await this.evaluate<NativeResult<string>>(`
+        global.__RN_DRIVER__.screenshot.captureRegion({
+          x: ${x},
+          y: ${y},
+          width: ${width},
+          height: ${height}
+        })
+      `);
+    } else {
+      // Capture full screen
+      result = await this.evaluate<NativeResult<string>>(
+        "global.__RN_DRIVER__.screenshot.captureScreen()",
+      );
+    }
+
+    if (!result.success) {
+      throw new LocatorError(result.error, result.code);
+    }
+
+    // Decode base64 to Buffer
+    return Buffer.from(result.data, "base64");
   }
 
   // --- Navigation/Lifecycle (Phase 3) ---
 
-  async openURL(_url: string): Promise<void> {
-    throw new NativeModuleRequiredError("openURL()", "RNDriverLifecycle");
+  async openURL(url: string): Promise<void> {
+    const result = await this.evaluate<NativeResult<void>>(
+      `global.__RN_DRIVER__.lifecycle.openURL(${JSON.stringify(url)})`,
+    );
+
+    if (!result.success) {
+      throw new LocatorError(result.error, result.code);
+    }
   }
 
   async reload(): Promise<void> {
-    throw new NativeModuleRequiredError("reload()", "RNDriverLifecycle");
+    const result = await this.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.reload()",
+    );
+
+    if (!result.success) {
+      throw new LocatorError(result.error, result.code);
+    }
   }
 
   async background(): Promise<void> {
-    throw new NativeModuleRequiredError("background()", "RNDriverLifecycle");
+    const result = await this.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.background()",
+    );
+
+    if (!result.success) {
+      throw new LocatorError(result.error, result.code);
+    }
   }
 
   async foreground(): Promise<void> {
-    throw new NativeModuleRequiredError("foreground()", "RNDriverLifecycle");
+    const result = await this.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.foreground()",
+    );
+
+    if (!result.success) {
+      throw new LocatorError(result.error, result.code);
+    }
   }
 
   // --- Utilities (Phase 1) ---

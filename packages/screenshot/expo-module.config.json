@@ -1,0 +1,9 @@
+{
+	"platforms": ["ios", "android"],
+	"ios": {
+		"modules": ["RNDriverScreenshotModule"]
+	},
+	"android": {
+		"modules": ["expo.modules.rndriverscreenshot.RNDriverScreenshotModule"]
+	}
+}

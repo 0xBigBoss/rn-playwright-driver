@@ -2,5 +2,12 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "project": ["**/*.{ts,tsx}"],
   "ignore": ["node_modules/**", ".expo/**"],
-  "ignoreDependencies": ["@0xbigboss/rn-playwright-driver", "expo-updates", "expo-system-ui"]
+  "ignoreDependencies": [
+    "@0xbigboss/rn-playwright-driver",
+    "@0xbigboss/rn-driver-view-tree",
+    "@0xbigboss/rn-driver-screenshot",
+    "@0xbigboss/rn-driver-lifecycle",
+    "expo-updates",
+    "expo-system-ui"
+  ]
 }
