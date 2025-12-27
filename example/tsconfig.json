@@ -1,0 +1,13 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "*": ["./*"],
+      "@0xbigboss/rn-playwright-driver": ["../dist/index.d.ts"],
+      "@0xbigboss/rn-playwright-driver/test": ["../dist/test.d.ts"],
+      "@0xbigboss/rn-playwright-driver/harness": ["../dist/harness/index.d.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}
