@@ -43,78 +43,117 @@ public class RNDriverViewTreeModule: Module {
     public func definition() -> ModuleDefinition {
         Name("RNDriverViewTree")
 
-        // Single element queries
+        // Single element queries - all run on main thread for UIKit safety
         AsyncFunction("findByTestId") { (testId: String) -> [String: Any] in
-            return self.findSingleElement { view in
-                self.matchesTestId(view, testId: testId)
+            return self.runOnMainThread {
+                self.findSingleElement { view in
+                    self.matchesTestId(view, testId: testId)
+                }
             }
         }
 
         AsyncFunction("findByText") { (text: String, exact: Bool) -> [String: Any] in
-            return self.findSingleElement { view in
-                self.matchesText(view, text: text, exact: exact)
+            return self.runOnMainThread {
+                self.findSingleElement { view in
+                    self.matchesText(view, text: text, exact: exact)
+                }
             }
         }
 
         AsyncFunction("findByRole") { (role: String, name: String?) -> [String: Any] in
-            return self.findSingleElement { view in
-                self.matchesRole(view, role: role, name: name)
+            return self.runOnMainThread {
+                self.findSingleElement { view in
+                    self.matchesRole(view, role: role, name: name)
+                }
             }
         }
 
         // Multiple element queries
         AsyncFunction("findAllByTestId") { (testId: String) -> [String: Any] in
-            return self.findAllElements { view in
-                self.matchesTestId(view, testId: testId)
+            return self.runOnMainThread {
+                self.findAllElements { view in
+                    self.matchesTestId(view, testId: testId)
+                }
             }
         }
 
         AsyncFunction("findAllByText") { (text: String, exact: Bool) -> [String: Any] in
-            return self.findAllElements { view in
-                self.matchesText(view, text: text, exact: exact)
+            return self.runOnMainThread {
+                self.findAllElements { view in
+                    self.matchesText(view, text: text, exact: exact)
+                }
             }
         }
 
         AsyncFunction("findAllByRole") { (role: String, name: String?) -> [String: Any] in
-            return self.findAllElements { view in
-                self.matchesRole(view, role: role, name: name)
+            return self.runOnMainThread {
+                self.findAllElements { view in
+                    self.matchesRole(view, role: role, name: name)
+                }
             }
         }
 
         // Element state queries
         AsyncFunction("getBounds") { (handle: String) -> [String: Any] in
-            guard let view = self.resolveHandle(handle) else {
-                return self.successResult(NSNull())
+            return self.runOnMainThread {
+                guard let view = self.resolveHandle(handle) else {
+                    return self.successResult(NSNull())
+                }
+                let bounds = self.getViewBounds(view)
+                return self.successResult([
+                    "x": bounds.x,
+                    "y": bounds.y,
+                    "width": bounds.width,
+                    "height": bounds.height
+                ])
             }
-            let bounds = self.getViewBounds(view)
-            return self.successResult([
-                "x": bounds.x,
-                "y": bounds.y,
-                "width": bounds.width,
-                "height": bounds.height
-            ])
         }
 
         AsyncFunction("isVisible") { (handle: String) -> [String: Any] in
-            guard let view = self.resolveHandle(handle) else {
-                return self.errorResult("Element not found", code: "NOT_FOUND")
+            return self.runOnMainThread {
+                guard let view = self.resolveHandle(handle) else {
+                    return self.errorResult("Element not found", code: "NOT_FOUND")
+                }
+                return self.successResult(self.isViewVisible(view))
             }
-            return self.successResult(self.isViewVisible(view))
         }
 
         AsyncFunction("isEnabled") { (handle: String) -> [String: Any] in
-            guard let view = self.resolveHandle(handle) else {
-                return self.errorResult("Element not found", code: "NOT_FOUND")
+            return self.runOnMainThread {
+                guard let view = self.resolveHandle(handle) else {
+                    return self.errorResult("Element not found", code: "NOT_FOUND")
+                }
+                return self.successResult(self.isViewEnabled(view))
             }
-            return self.successResult(self.isViewEnabled(view))
         }
 
         AsyncFunction("refresh") { (handle: String) -> [String: Any] in
-            guard let view = self.resolveHandle(handle) else {
-                return self.successResult(NSNull())
+            return self.runOnMainThread {
+                guard let view = self.resolveHandle(handle) else {
+                    return self.successResult(NSNull())
+                }
+                return self.successResult(self.createElementInfo(for: view))
             }
-            return self.successResult(self.createElementInfo(for: view))
         }
+    }
+
+    // MARK: - Thread Safety
+
+    /// Run a closure on the main thread and wait for result.
+    /// Required for UIKit access which must happen on main thread.
+    private func runOnMainThread<T>(_ block: @escaping () -> T) -> T {
+        if Thread.isMainThread {
+            return block()
+        }
+
+        var result: T!
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            result = block()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     // MARK: - Handle Management

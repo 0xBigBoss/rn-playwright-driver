@@ -11,6 +11,7 @@ import android.view.View
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 
 class RNDriverScreenshotModule : Module() {
     override fun definition() = ModuleDefinition {
@@ -34,9 +35,15 @@ class RNDriverScreenshotModule : Module() {
             successResult(base64)
         }
 
+        // Note: captureElement is implemented via JS bridge in the harness
+        // The harness calls viewTree.getBounds(handle) then screenshot.captureRegion()
         AsyncFunction("captureElement") { handle: String ->
-            // For element capture, we'd need access to the view-tree module's handle map
-            errorResult("captureElement requires view-tree module integration", "NOT_SUPPORTED")
+            // This would require cross-module handle registry which adds complexity
+            // Instead, use the harness bridge which orchestrates viewTree + screenshot
+            errorResult(
+                "Use harness bridge: global.__RN_DRIVER__.screenshot.captureElement(handle)",
+                "NOT_SUPPORTED"
+            )
         }
 
         AsyncFunction("captureRegion") { x: Double, y: Double, width: Double, height: Double ->
@@ -108,9 +115,10 @@ class RNDriverScreenshotModule : Module() {
                     Handler(Looper.getMainLooper())
                 )
 
-                latch.await()
+                // Wait with timeout to prevent indefinite hang
+                val completed = latch.await(5, TimeUnit.SECONDS)
 
-                if (!success) {
+                if (!completed || !success) {
                     // Fallback to canvas drawing
                     val canvas = Canvas(bitmap)
                     view.draw(canvas)

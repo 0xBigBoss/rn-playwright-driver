@@ -1,5 +1,7 @@
 package expo.modules.rndriverviewtree
 
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -12,6 +14,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.WeakHashMap
+import java.util.concurrent.CountDownLatch
 
 class RNDriverViewTreeModule : Module() {
     // WeakHashMap: View -> handle (auto-cleans when view is GC'd)
@@ -22,69 +25,108 @@ class RNDriverViewTreeModule : Module() {
     override fun definition() = ModuleDefinition {
         Name("RNDriverViewTree")
 
-        // Single element queries
+        // Single element queries - all run on UI thread for View hierarchy safety
         AsyncFunction("findByTestId") { testId: String ->
-            findSingleElement { view -> matchesTestId(view, testId) }
+            runOnUiThreadBlocking { findSingleElement { view -> matchesTestId(view, testId) } }
         }
 
         AsyncFunction("findByText") { text: String, exact: Boolean ->
-            findSingleElement { view -> matchesText(view, text, exact) }
+            runOnUiThreadBlocking { findSingleElement { view -> matchesText(view, text, exact) } }
         }
 
         AsyncFunction("findByRole") { role: String, name: String? ->
-            findSingleElement { view -> matchesRole(view, role, name) }
+            runOnUiThreadBlocking { findSingleElement { view -> matchesRole(view, role, name) } }
         }
 
         // Multiple element queries
         AsyncFunction("findAllByTestId") { testId: String ->
-            findAllElements { view -> matchesTestId(view, testId) }
+            runOnUiThreadBlocking { findAllElements { view -> matchesTestId(view, testId) } }
         }
 
         AsyncFunction("findAllByText") { text: String, exact: Boolean ->
-            findAllElements { view -> matchesText(view, text, exact) }
+            runOnUiThreadBlocking { findAllElements { view -> matchesText(view, text, exact) } }
         }
 
         AsyncFunction("findAllByRole") { role: String, name: String? ->
-            findAllElements { view -> matchesRole(view, role, name) }
+            runOnUiThreadBlocking { findAllElements { view -> matchesRole(view, role, name) } }
         }
 
         // Element state queries
         AsyncFunction("getBounds") { handle: String ->
-            val view = resolveHandle(handle)
-            if (view == null) {
-                successResult(null)
-            } else {
-                val bounds = getViewBounds(view)
-                successResult(bounds)
+            runOnUiThreadBlocking {
+                val view = resolveHandle(handle)
+                if (view == null) {
+                    successResult(null)
+                } else {
+                    val bounds = getViewBounds(view)
+                    successResult(bounds)
+                }
             }
         }
 
         AsyncFunction("isVisible") { handle: String ->
-            val view = resolveHandle(handle)
-            if (view == null) {
-                errorResult("Element not found", "NOT_FOUND")
-            } else {
-                successResult(isViewVisible(view))
+            runOnUiThreadBlocking {
+                val view = resolveHandle(handle)
+                if (view == null) {
+                    errorResult("Element not found", "NOT_FOUND")
+                } else {
+                    successResult(isViewVisible(view))
+                }
             }
         }
 
         AsyncFunction("isEnabled") { handle: String ->
-            val view = resolveHandle(handle)
-            if (view == null) {
-                errorResult("Element not found", "NOT_FOUND")
-            } else {
-                successResult(view.isEnabled)
+            runOnUiThreadBlocking {
+                val view = resolveHandle(handle)
+                if (view == null) {
+                    errorResult("Element not found", "NOT_FOUND")
+                } else {
+                    successResult(view.isEnabled)
+                }
             }
         }
 
         AsyncFunction("refresh") { handle: String ->
-            val view = resolveHandle(handle)
-            if (view == null) {
-                successResult(null)
-            } else {
-                successResult(createElementInfo(view))
+            runOnUiThreadBlocking {
+                val view = resolveHandle(handle)
+                if (view == null) {
+                    successResult(null)
+                } else {
+                    successResult(createElementInfo(view))
+                }
             }
         }
+    }
+
+    // MARK: - Thread Safety
+
+    /**
+     * Run a block on the UI thread and wait for result.
+     * Required for View hierarchy access which must happen on UI thread.
+     */
+    private fun <T> runOnUiThreadBlocking(block: () -> T): T {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return block()
+        }
+
+        val latch = CountDownLatch(1)
+        var result: T? = null
+        var exception: Exception? = null
+
+        Handler(Looper.getMainLooper()).post {
+            try {
+                result = block()
+            } catch (e: Exception) {
+                exception = e
+            }
+            latch.countDown()
+        }
+
+        latch.await()
+
+        exception?.let { throw it }
+        @Suppress("UNCHECKED_CAST")
+        return result as T
     }
 
     // MARK: - Handle Management

@@ -30,13 +30,31 @@ public class RNDriverLifecycleModule: Module {
         }
 
         AsyncFunction("reload") { () -> [String: Any] in
-            DispatchQueue.main.async {
-                // Use React Native's DevSettings to reload if available
-                if let devSettings = RCTDevSettings?.sharedSettings {
-                    devSettings.reload()
-                }
+            // Check if DevSettings is available (dev mode only)
+            guard let devSettingsClass = RCTDevSettings,
+                  let devSettings = devSettingsClass.sharedSettings else {
+                return self.errorResult(
+                    "Reload not available in production builds. DevSettings not found.",
+                    code: "NOT_SUPPORTED"
+                )
             }
-            return self.successResult(NSNull())
+
+            var reloadCalled = false
+            let semaphore = DispatchSemaphore(value: 0)
+
+            DispatchQueue.main.async {
+                devSettings.reload()
+                reloadCalled = true
+                semaphore.signal()
+            }
+
+            semaphore.wait()
+
+            if reloadCalled {
+                return self.successResult(NSNull())
+            } else {
+                return self.errorResult("Failed to trigger reload", code: "INTERNAL")
+            }
         }
 
         AsyncFunction("background") { () -> [String: Any] in

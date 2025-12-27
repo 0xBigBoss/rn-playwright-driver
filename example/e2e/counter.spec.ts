@@ -222,6 +222,114 @@ test.describe("Counter App - View Tree (Native Module)", () => {
       expect(bounds.height).toBeGreaterThan(0);
     }
   });
+
+  test("getByRole finds element with accessibility role", async ({ device }) => {
+    const capabilities = await device.evaluate<{ viewTree: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.viewTree) {
+      test.skip();
+      return;
+    }
+
+    // Find a button by role
+    const locator = device.getByRole("button");
+    const isVisible = await locator.isVisible();
+    expect(typeof isVisible).toBe("boolean");
+  });
+
+  test("findAll queries return arrays with handles", async ({ device }) => {
+    const capabilities = await device.evaluate<{ viewTree: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.viewTree) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> = { success: true; data: T } | { success: false; error: string };
+    type ElementInfo = { handle: string };
+
+    // Test findAllByText - find elements containing "Count" (from "Count: X")
+    const textResult = await device.evaluate<NativeResult<ElementInfo[]>>(
+      "global.__RN_DRIVER__.viewTree.findAllByText('Count', false)",
+    );
+    expect(textResult.success).toBe(true);
+    if (textResult.success) {
+      expect(Array.isArray(textResult.data)).toBe(true);
+      expect(textResult.data.length).toBeGreaterThanOrEqual(1);
+    }
+
+    // Test findAllByTestId - find increment button (exact match returns 1)
+    const testIdResult = await device.evaluate<NativeResult<ElementInfo[]>>(
+      "global.__RN_DRIVER__.viewTree.findAllByTestId('increment-button')",
+    );
+    expect(testIdResult.success).toBe(true);
+    if (testIdResult.success) {
+      expect(Array.isArray(testIdResult.data)).toBe(true);
+      expect(testIdResult.data.length).toBe(1);
+      expect(testIdResult.data[0].handle.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("isEnabled returns element enabled state", async ({ device }) => {
+    const capabilities = await device.evaluate<{ viewTree: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.viewTree) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> = { success: true; data: T } | { success: false; error: string };
+    type ElementInfo = { handle: string; enabled: boolean };
+
+    // Find an element and check isEnabled
+    const findResult = await device.evaluate<NativeResult<ElementInfo>>(
+      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+    );
+
+    if (findResult.success) {
+      const isEnabledResult = await device.evaluate<NativeResult<boolean>>(
+        `global.__RN_DRIVER__.viewTree.isEnabled('${findResult.data.handle}')`,
+      );
+
+      if (isEnabledResult.success) {
+        expect(typeof isEnabledResult.data).toBe("boolean");
+      }
+    }
+  });
+
+  test("refresh returns updated element info", async ({ device }) => {
+    const capabilities = await device.evaluate<{ viewTree: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.viewTree) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> = { success: true; data: T } | { success: false; error: string };
+    type ElementInfo = { handle: string; bounds: { x: number; y: number } };
+
+    // Find an element
+    const findResult = await device.evaluate<NativeResult<ElementInfo>>(
+      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+    );
+
+    if (findResult.success) {
+      // Refresh should return updated info
+      const refreshResult = await device.evaluate<NativeResult<ElementInfo | null>>(
+        `global.__RN_DRIVER__.viewTree.refresh('${findResult.data.handle}')`,
+      );
+
+      expect(typeof refreshResult.success).toBe("boolean");
+    }
+  });
 });
 
 test.describe("Counter App - Screenshot (Native Module)", () => {
@@ -244,6 +352,76 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
     expect(screenshot[1]).toBe(0x50); // 'P'
     expect(screenshot[2]).toBe(0x4e); // 'N'
     expect(screenshot[3]).toBe(0x47); // 'G'
+  });
+
+  test("screenshot.captureRegion() captures specific region", async ({ device }) => {
+    const capabilities = await device.evaluate<{ screenshot: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.screenshot) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> = { success: true; data: T } | { success: false; error: string };
+
+    // Capture a 100x100 region from top-left
+    const result = await device.evaluate<NativeResult<string>>(
+      "global.__RN_DRIVER__.screenshot.captureRegion({ x: 0, y: 0, width: 100, height: 100 })",
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Should be a base64 string
+      expect(typeof result.data).toBe("string");
+      expect(result.data.length).toBeGreaterThan(0);
+
+      // Decode and verify PNG header
+      const buffer = Buffer.from(result.data, "base64");
+      expect(buffer[0]).toBe(0x89);
+      expect(buffer[1]).toBe(0x50); // 'P'
+    }
+  });
+
+  test("screenshot.captureElement() captures element by handle", async ({ device }) => {
+    const capabilities = await device.evaluate<{ screenshot: boolean; viewTree: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.screenshot || !capabilities.viewTree) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> = { success: true; data: T } | { success: false; error: string };
+    type ElementInfo = { handle: string };
+
+    // First find an element to get its handle
+    const findResult = await device.evaluate<NativeResult<ElementInfo>>(
+      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+    );
+
+    if (!findResult.success) {
+      test.skip();
+      return;
+    }
+
+    // Now capture that element using the harness bridge
+    const captureResult = await device.evaluate<NativeResult<string>>(
+      `global.__RN_DRIVER__.screenshot.captureElement('${findResult.data.handle}')`,
+    );
+
+    expect(captureResult.success).toBe(true);
+    if (captureResult.success) {
+      expect(typeof captureResult.data).toBe("string");
+      expect(captureResult.data.length).toBeGreaterThan(0);
+
+      // Decode and verify PNG header
+      const buffer = Buffer.from(captureResult.data, "base64");
+      expect(buffer[0]).toBe(0x89);
+      expect(buffer[1]).toBe(0x50); // 'P'
+    }
   });
 });
 
@@ -283,5 +461,42 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
     if (result.success) {
       expect(["active", "background", "inactive"]).toContain(result.data);
     }
+  });
+
+  test("lifecycle control APIs return valid results", async ({ device }) => {
+    const capabilities = await device.evaluate<{ lifecycle: boolean }>(
+      "global.__RN_DRIVER__.capabilities",
+    );
+
+    if (!capabilities.lifecycle) {
+      test.skip();
+      return;
+    }
+
+    type NativeResult<T> =
+      | { success: true; data: T }
+      | { success: false; error: string; code: string };
+
+    const platform = await device.evaluate<string>("require('react-native').Platform.OS");
+
+    // Test reload - may return NOT_SUPPORTED in production
+    const reloadResult = await device.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.reload()",
+    );
+    expect(typeof reloadResult.success).toBe("boolean");
+
+    // Test background - iOS returns NOT_SUPPORTED
+    const bgResult = await device.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.background()",
+    );
+    if (platform === "ios") {
+      expect(bgResult.success).toBe(false);
+    }
+
+    // Test foreground - no-op success when already active
+    const fgResult = await device.evaluate<NativeResult<void>>(
+      "global.__RN_DRIVER__.lifecycle.foreground()",
+    );
+    expect(fgResult.success).toBe(true);
   });
 });

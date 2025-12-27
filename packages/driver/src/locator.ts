@@ -109,6 +109,15 @@ export class LocatorImpl implements Locator {
         return;
       }
 
+      // Fail fast on non-retryable errors
+      if (
+        result.code === "NOT_SUPPORTED" ||
+        result.code === "INTERNAL" ||
+        result.code === "MULTIPLE_FOUND"
+      ) {
+        throw new LocatorError(result.error, result.code);
+      }
+
       await this.device.waitForTimeout(DEFAULT_POLLING_INTERVAL);
     }
 

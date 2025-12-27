@@ -21,6 +21,12 @@ const NativeModule =
 
 /**
  * Screenshot module for capturing screen and element screenshots.
+ *
+ * Note: captureElement is only supported via the harness bridge
+ * (global.__RN_DRIVER__.screenshot.captureElement). Direct calls
+ * to this module's captureElement will return NOT_SUPPORTED.
+ * The harness orchestrates viewTree.getBounds + screenshot.captureRegion
+ * to implement element capture without cross-module handle sharing.
  */
 export const RNDriverScreenshotModule = {
 	/**
@@ -34,6 +40,10 @@ export const RNDriverScreenshotModule = {
 	/**
 	 * Capture screenshot of specific element.
 	 * Returns base64-encoded PNG cropped to element bounds.
+	 *
+	 * Note: This method returns NOT_SUPPORTED when called directly.
+	 * Use the harness bridge instead: global.__RN_DRIVER__.screenshot.captureElement(handle)
+	 * The harness orchestrates viewTree.getBounds + captureRegion to implement this.
 	 */
 	captureElement(handle: string): Promise<NativeResult<string>> {
 		return NativeModule.captureElement(handle);
