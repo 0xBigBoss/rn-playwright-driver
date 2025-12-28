@@ -1,0 +1,155 @@
+# rn-playwright-driver
+
+Playwright-compatible E2E test driver for React Native using Hermes CDP. It runs in Node.js, connects to the app’s Hermes runtime via Metro’s debug endpoint, and drives your app through a JS harness plus optional native modules.
+
+## What this provides
+
+- **Device API**: `evaluate`, `waitForFunction`, `pointer`, `screenshot`, `openURL`, etc.
+- **Locators**: `getByTestId`, `getByText`, `getByRole` (requires view-tree module).
+- **JS Harness**: `global.__RN_DRIVER__` installed in the app to bridge driver calls.
+- **Native Modules (optional)**:
+  - View tree queries
+  - Screenshots
+  - Lifecycle controls
+
+## Packages
+
+| Package | Purpose |
+| --- | --- |
+| `@0xbigboss/rn-playwright-driver` | Driver + Playwright fixtures + harness |
+| `@0xbigboss/rn-driver-view-tree` | View tree queries (locators, bounds, visibility) |
+| `@0xbigboss/rn-driver-screenshot` | Screen/region capture |
+| `@0xbigboss/rn-driver-lifecycle` | App lifecycle helpers |
+
+## Requirements
+
+- Node.js **>= 18**
+- React Native app running **Hermes** with Metro debug endpoints enabled
+- Expo Modules API for native modules (iOS + Android)
+
+## Installation
+
+Install driver and native modules in your app:
+
+```bash
+bun add @0xbigboss/rn-playwright-driver \
+  @0xbigboss/rn-driver-view-tree \
+  @0xbigboss/rn-driver-screenshot \
+  @0xbigboss/rn-driver-lifecycle
+```
+
+Install Playwright in your test workspace:
+
+```bash
+bun add -d @playwright/test
+```
+
+## App Setup (Harness)
+
+Import the harness once in your app entry:
+
+```ts
+import "@0xbigboss/rn-playwright-driver/harness";
+```
+
+Then build/run the app so the native modules are installed:
+
+```bash
+expo run:ios
+# or
+expo run:android
+```
+
+## Production-safe Setup (Required)
+
+Do **not** ship the harness in production builds. Use one of these patterns so it only loads for E2E/dev:
+
+### Option A: Conditional import (simple)
+
+```ts
+if (__DEV__ || globalThis.__E2E__ === true) {
+  void import("@0xbigboss/rn-playwright-driver/harness");
+}
+```
+
+### Option B: Separate entry file (cleanest for CI)
+
+```ts
+// index.e2e.ts
+import "./index";
+import "@0xbigboss/rn-playwright-driver/harness";
+```
+
+Point your E2E build/profile at `index.e2e.ts` so production builds never include the harness.
+
+## Writing Tests
+
+Use the provided Playwright fixtures:
+
+```ts
+import { test, expect } from "@0xbigboss/rn-playwright-driver/test";
+
+test("can evaluate JS", async ({ device }) => {
+  const result = await device.evaluate<number>("1 + 2 + 3");
+  expect(result).toBe(6);
+});
+
+test("can tap by testID", async ({ device }) => {
+  await device.getByTestId("increment-button").tap();
+});
+```
+
+## Configuration
+
+Environment variables for target selection and timeouts:
+
+| Env var | Description | Default |
+| --- | --- | --- |
+| `RN_METRO_URL` | Metro bundler URL | `http://localhost:8081` |
+| `RN_DEVICE_ID` | Device ID to match | _unset_ |
+| `RN_DEVICE_NAME` | Device name substring match | _unset_ |
+| `RN_TIMEOUT` | Request timeout (ms) | `30000` |
+
+## Running E2E Tests
+
+1. Start Metro for the app (e.g., `expo start`).
+2. Run the app on device/simulator with Hermes debugging enabled.
+3. Run Playwright:
+
+```bash
+bun run test:e2e
+```
+
+## Development (Monorepo)
+
+```bash
+bun install
+bun run check
+```
+
+Useful scripts (root):
+- `bun run build` – build all packages
+- `bun run lint` / `bun run typecheck` – quality checks
+- `bun run check` – typecheck + lint + knip + cpd
+
+## Development Notes
+
+- `expo run:ios --device "Device Name"` performs a full native build and then starts Metro as a long-running file watcher. Run E2E tests in a separate terminal while Metro is running.
+
+## Architecture
+
+High-level flow:
+
+```
+Playwright test (Node)
+  └─ @0xbigboss/rn-playwright-driver (CDP client)
+       └─ Hermes Runtime via Metro /json
+            └─ global.__RN_DRIVER__ harness
+                 └─ Expo native modules (view-tree, screenshot, lifecycle)
+```
+
+See `docs/NATIVE-MODULES-ARCHITECTURE.md` for full details.
+
+## License
+
+MIT
