@@ -15,6 +15,11 @@
       "import": "./harness/index.ts",
       "require": "./harness/index.ts"
     },
+    "./harness/dev": {
+      "types": "./harness/dev.ts",
+      "import": "./harness/dev.ts",
+      "require": "./harness/dev.ts"
+    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.mjs",

@@ -208,16 +208,40 @@ class RNDriverViewTreeModule : Module() {
     // MARK: - View Properties
 
     private fun getViewText(view: View): String? {
-        // Check content description first
+        // Check content description first (accessibility label equivalent)
         view.contentDescription?.toString()?.takeIf { it.isNotEmpty() }?.let { return it }
 
-        // Check view type
-        return when (view) {
-            is TextView -> view.text?.toString()
-            is EditText -> view.text?.toString()?.takeIf { it.isNotEmpty() } ?: view.hint?.toString()
-            is Button -> view.text?.toString()
-            else -> null
+        // Check view type for direct text
+        when (view) {
+            is TextView -> view.text?.toString()?.takeIf { it.isNotEmpty() }?.let { return it }
+            is EditText -> (view.text?.toString()?.takeIf { it.isNotEmpty() } ?: view.hint?.toString())?.let { return it }
+            is Button -> view.text?.toString()?.takeIf { it.isNotEmpty() }?.let { return it }
         }
+
+        // For container views, aggregate text from child TextViews
+        val childText = getAggregatedChildText(view)
+        if (childText.isNotEmpty()) {
+            return childText
+        }
+
+        return null
+    }
+
+    /**
+     * Aggregate text from immediate child TextView views.
+     * Useful for container views that wrap multiple text elements.
+     */
+    private fun getAggregatedChildText(view: View): String {
+        if (view !is ViewGroup) return ""
+
+        val texts = mutableListOf<String>()
+        for (i in 0 until view.childCount) {
+            val child = view.getChildAt(i)
+            if (child is TextView) {
+                child.text?.toString()?.takeIf { it.isNotEmpty() }?.let { texts.add(it) }
+            }
+        }
+        return texts.joinToString(" ")
     }
 
     private fun getViewRole(view: View): String? {

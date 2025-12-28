@@ -83,6 +83,7 @@ export type Capabilities = {
   viewTree: boolean;
   screenshot: boolean;
   lifecycle: boolean;
+  pointer: boolean;
 };
 
 /**
@@ -352,6 +353,7 @@ function installHarness(): void {
     viewTree: viewTreeNative !== null,
     screenshot: screenshotNative !== null,
     lifecycle: lifecycleNative !== null,
+    pointer: true, // JS pointer harness is always available
   };
 
   const harness: RNDriverGlobal = {

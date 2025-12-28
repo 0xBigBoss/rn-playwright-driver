@@ -14,4 +14,14 @@ export { createLocator, LocatorError, LocatorImpl } from "./locator";
 // --- Pointer ---
 export { HarnessNotInstalledError, Pointer } from "./pointer";
 // --- Types ---
-export type { Device, DeviceOptions, ElementBounds, Locator, PointerOptions } from "./types";
+export type {
+  Capabilities,
+  Device,
+  DeviceOptions,
+  ElementBounds,
+  HarnessLoadMode,
+  Locator,
+  PointerOptions,
+  WaitForOptions,
+  WaitForState,
+} from "./types";

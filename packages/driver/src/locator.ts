@@ -1,4 +1,4 @@
-import type { ElementBounds, Locator } from "./types";
+import type { ElementBounds, Locator, WaitForOptions, WaitForState } from "./types";
 
 /**
  * Selector types for locating elements.
@@ -97,34 +97,67 @@ export class LocatorImpl implements Locator {
   }
 
   /**
-   * Wait for element to exist in view tree.
+   * Wait for element to reach a specific state.
+   * - "attached": element exists in the view tree
+   * - "visible": element exists AND is visible
+   * - "hidden": element exists but is NOT visible
+   * - "detached": element does NOT exist
    */
-  async waitFor(options?: { timeout?: number }): Promise<void> {
+  async waitFor(options?: WaitForOptions): Promise<void> {
+    const state: WaitForState = options?.state ?? "visible";
     const timeout = options?.timeout ?? DEFAULT_WAIT_TIMEOUT;
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
       const result = await this.query();
-      if (result.success) {
-        return;
-      }
 
-      // Fail fast on non-retryable errors
+      // Fail fast on non-retryable errors (except NOT_FOUND which is expected for "detached")
       if (
-        result.code === "NOT_SUPPORTED" ||
-        result.code === "INTERNAL" ||
-        result.code === "MULTIPLE_FOUND"
+        !result.success &&
+        result.code !== "NOT_FOUND" &&
+        (result.code === "NOT_SUPPORTED" ||
+          result.code === "INTERNAL" ||
+          result.code === "MULTIPLE_FOUND")
       ) {
         throw new LocatorError(result.error, result.code);
+      }
+
+      // Check if the desired state is reached
+      if (this.matchesState(result, state)) {
+        return;
       }
 
       await this.device.waitForTimeout(DEFAULT_POLLING_INTERVAL);
     }
 
     throw new LocatorError(
-      `waitFor timed out after ${timeout}ms for ${this.toString()}`,
+      `waitFor(state="${state}") timed out after ${timeout}ms for ${this.toString()}`,
       "TIMEOUT",
     );
+  }
+
+  /**
+   * Check if the query result matches the desired state.
+   */
+  private matchesState(result: NativeResult<ElementInfo>, state: WaitForState): boolean {
+    switch (state) {
+      case "attached":
+        // Element exists (query succeeded)
+        return result.success;
+      case "visible":
+        // Element exists AND is visible
+        return result.success && result.data.visible;
+      case "hidden":
+        // Element exists but is NOT visible
+        return result.success && !result.data.visible;
+      case "detached":
+        // Element does NOT exist
+        return !result.success && result.code === "NOT_FOUND";
+      default: {
+        const _exhaustive: never = state;
+        throw new Error(`Unknown state: ${_exhaustive}`);
+      }
+    }
   }
 
   /**
@@ -148,19 +181,15 @@ export class LocatorImpl implements Locator {
 
   /**
    * Capture screenshot of element.
+   * Uses native captureElement when available, falls back to region capture.
    */
   async screenshot(): Promise<Buffer> {
     const info = await this.resolve();
 
-    // Use the screenshot bridge to capture the region
-    const result = await this.device.evaluate<NativeResult<string>>(`
-      globalThis.__RN_DRIVER__.screenshot.captureRegion({
-        x: ${info.bounds.x},
-        y: ${info.bounds.y},
-        width: ${info.bounds.width},
-        height: ${info.bounds.height}
-      })
-    `);
+    // Use captureElement which orchestrates viewTree + screenshot in harness
+    const result = await this.device.evaluate<NativeResult<string>>(
+      `globalThis.__RN_DRIVER__.screenshot.captureElement(${JSON.stringify(info.handle)})`,
+    );
 
     if (!result.success) {
       throw new LocatorError(result.error, result.code);

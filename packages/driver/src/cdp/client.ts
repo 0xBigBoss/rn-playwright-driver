@@ -3,7 +3,12 @@ import WebSocket from "ws";
 export type CDPClientOptions = {
   /** Request timeout in ms (default: 30000) */
   timeout?: number;
-  // TODO (Phase 4): Add autoReconnect option when implemented
+  /** Auto-reconnect on connection loss (default: false) */
+  autoReconnect?: boolean;
+  /** Maximum reconnect attempts (default: 3) */
+  maxReconnectAttempts?: number;
+  /** Base backoff delay in ms, doubles each attempt (default: 1000) */
+  reconnectBackoffMs?: number;
 };
 
 type PendingRequest = {
@@ -32,15 +37,33 @@ export class CDPClient {
   private messageId = 0;
   private pending = new Map<number, PendingRequest>();
   private options: Required<CDPClientOptions>;
+  private wsUrl: string | null = null;
+  private reconnectAttempts = 0;
+  private isReconnecting = false;
+  private targetInfo: { id?: string; url?: string } = {};
 
   constructor(options: CDPClientOptions = {}) {
     this.options = {
       timeout: options.timeout ?? 30_000,
+      autoReconnect: options.autoReconnect ?? false,
+      maxReconnectAttempts: options.maxReconnectAttempts ?? 3,
+      reconnectBackoffMs: options.reconnectBackoffMs ?? 1000,
     };
   }
 
-  async connect(wsUrl: string): Promise<void> {
-    this.ws = new WebSocket(wsUrl);
+  async connect(wsUrl: string, targetInfo?: { id?: string; url?: string }): Promise<void> {
+    this.wsUrl = wsUrl;
+    this.targetInfo = targetInfo ?? {};
+    this.reconnectAttempts = 0;
+    await this.doConnect();
+  }
+
+  private async doConnect(): Promise<void> {
+    if (!this.wsUrl) {
+      throw new Error("CDP client: no WebSocket URL configured");
+    }
+
+    this.ws = new WebSocket(this.wsUrl);
 
     await new Promise<void>((resolve, reject) => {
       const onOpen = () => {
@@ -129,7 +152,13 @@ export class CDPClient {
         result.exceptionDetails.text ??
         result.exceptionDetails.exception?.description ??
         "Unknown error";
-      throw new Error(`CDP evaluate failed: ${text}`);
+      const exprSnippet = expression.length > 100 ? `${expression.slice(0, 100)}...` : expression;
+      const targetDesc = this.targetInfo.url
+        ? ` [target: ${this.targetInfo.url}]`
+        : this.targetInfo.id
+          ? ` [target: ${this.targetInfo.id}]`
+          : "";
+      throw new Error(`CDP evaluate failed: ${text}${targetDesc}\nExpression: ${exprSnippet}`);
     }
 
     type EvaluatePayload =
@@ -254,15 +283,56 @@ export class CDPClient {
   }
 
   private handleClose(code: number, reason: Buffer) {
-    // Reject all pending requests
-    const error = new Error(`CDP connection closed: ${code} ${reason.toString()}`);
+    const reasonStr = reason.toString() || "unknown";
+
+    // Attempt auto-reconnect if enabled
+    if (this.options.autoReconnect && !this.isReconnecting && this.wsUrl) {
+      this.attemptReconnect();
+      return;
+    }
+
+    // Reject all pending requests with detailed error
+    const targetDesc = this.targetInfo.url
+      ? ` (target: ${this.targetInfo.url})`
+      : this.targetInfo.id
+        ? ` (target: ${this.targetInfo.id})`
+        : "";
+    const error = new Error(`CDP connection closed: ${code} ${reasonStr}${targetDesc}`);
     for (const [, { reject, timer }] of this.pending) {
       clearTimeout(timer);
       reject(error);
     }
     this.pending.clear();
+  }
 
-    // TODO (Phase 4): Implement autoReconnect if enabled
+  private async attemptReconnect(): Promise<void> {
+    if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
+      const error = new Error(`CDP reconnect failed after ${this.reconnectAttempts} attempts`);
+      for (const [, { reject, timer }] of this.pending) {
+        clearTimeout(timer);
+        reject(error);
+      }
+      this.pending.clear();
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    // Exponential backoff
+    const delay = this.options.reconnectBackoffMs * 2 ** (this.reconnectAttempts - 1);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    try {
+      await this.doConnect();
+      this.isReconnecting = false;
+      // Re-enable runtime after reconnect
+      await this.send("Runtime.enable", {});
+    } catch {
+      this.isReconnecting = false;
+      // Try again
+      await this.attemptReconnect();
+    }
   }
 
   private handleError(err: Error) {

@@ -64,7 +64,24 @@ expo run:android
 
 Do **not** ship the harness in production builds. Use one of these patterns so it only loads for E2E/dev:
 
-### Option A: Conditional import (simple)
+### Option A: Dev-only entry (recommended)
+
+Use the `/harness/dev` entry point which only installs when `__DEV__` is true or `globalThis.__E2E__` is set:
+
+```ts
+// In your app entry (e.g., App.tsx or index.ts)
+import "@0xbigboss/rn-playwright-driver/harness/dev";
+```
+
+To enable in production E2E builds, set the flag before the import:
+
+```ts
+// Set before import for prod E2E testing
+globalThis.__E2E__ = true;
+import "@0xbigboss/rn-playwright-driver/harness/dev";
+```
+
+### Option B: Conditional import (explicit)
 
 ```ts
 if (__DEV__ || globalThis.__E2E__ === true) {
@@ -72,7 +89,7 @@ if (__DEV__ || globalThis.__E2E__ === true) {
 }
 ```
 
-### Option B: Separate entry file (cleanest for CI)
+### Option C: Separate entry file (cleanest for CI)
 
 ```ts
 // index.e2e.ts
@@ -149,6 +166,13 @@ Playwright test (Node)
 ```
 
 See `docs/NATIVE-MODULES-ARCHITECTURE.md` for full details.
+
+## Documentation
+
+- [CI Setup](docs/CI.md) - iOS Simulator, Android Emulator, GitHub Actions
+- [Advanced Usage](docs/ADVANCED.md) - CDP targeting, timeouts, capabilities
+- [API Stability](docs/API-STABILITY.md) - Stability levels, upgrade notes
+- [Native Modules Architecture](docs/NATIVE-MODULES-ARCHITECTURE.md) - Internal design
 
 ## License
 

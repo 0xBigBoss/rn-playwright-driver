@@ -224,6 +224,11 @@ public class RNDriverViewTreeModule: Module {
             return label
         }
 
+        // Check accessibility value (e.g., for sliders, progress bars)
+        if let value = view.accessibilityValue, !value.isEmpty {
+            return value
+        }
+
         // Check if it's a UILabel
         if let label = view as? UILabel {
             return label.text
@@ -244,7 +249,25 @@ public class RNDriverViewTreeModule: Module {
             return button.currentTitle
         }
 
+        // For container views, aggregate text from child UILabels
+        let childText = getAggregatedChildText(view)
+        if !childText.isEmpty {
+            return childText
+        }
+
         return nil
+    }
+
+    /// Aggregate text from immediate child UILabel/Text views.
+    /// Useful for container views like RCTView that wrap multiple text elements.
+    private func getAggregatedChildText(_ view: UIView) -> String {
+        var texts: [String] = []
+        for subview in view.subviews {
+            if let label = subview as? UILabel, let text = label.text, !text.isEmpty {
+                texts.append(text)
+            }
+        }
+        return texts.joined(separator: " ")
     }
 
     private func getViewRole(_ view: UIView) -> String? {

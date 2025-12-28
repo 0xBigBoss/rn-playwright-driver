@@ -3,7 +3,7 @@ import { discoverTargets, selectTarget } from "./cdp/discovery";
 import type { Locator, LocatorSelector } from "./locator";
 import { createLocator, LocatorError } from "./locator";
 import { Pointer } from "./pointer";
-import type { Device, DeviceOptions, ElementBounds } from "./types";
+import type { Capabilities, Device, DeviceOptions, ElementBounds } from "./types";
 
 const DEFAULT_METRO_URL = "http://localhost:8081";
 const DEFAULT_WAIT_TIMEOUT = 30_000;
@@ -172,6 +172,14 @@ export class RNDevice implements Device {
     if (!result.success) {
       throw new LocatorError(result.error, result.code);
     }
+  }
+
+  // --- Capabilities Detection ---
+
+  async capabilities(): Promise<Capabilities> {
+    return this.evaluate<Capabilities>(
+      "globalThis.__RN_DRIVER__?.capabilities ?? { viewTree: false, screenshot: false, lifecycle: false, pointer: true }",
+    );
   }
 
   // --- Utilities (Phase 1) ---

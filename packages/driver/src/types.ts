@@ -5,6 +5,38 @@ export type DeviceOptions = {
   metroUrl?: string;
 } & TargetSelectionOptions;
 
+// --- Wait states for Locator.waitFor ---
+
+/** States for Locator.waitFor() */
+export type WaitForState = "attached" | "visible" | "hidden" | "detached";
+
+/** Options for Locator.waitFor() */
+export interface WaitForOptions {
+  /** Target state to wait for (default: "visible") */
+  state?: WaitForState;
+  /** Timeout in milliseconds (default: 30000) */
+  timeout?: number;
+}
+
+// --- Capabilities detection ---
+
+/** Capabilities reported by the harness */
+export interface Capabilities {
+  /** Native view tree module available */
+  viewTree: boolean;
+  /** Native screenshot module available */
+  screenshot: boolean;
+  /** Native lifecycle module available */
+  lifecycle: boolean;
+  /** JS pointer/touch harness available */
+  pointer: boolean;
+}
+
+// --- Harness loading modes ---
+
+/** How to load the test harness in the app */
+export type HarnessLoadMode = "always" | "dev-only" | "explicit";
+
 export type ElementBounds = {
   /** X position in logical points (not pixels) */
   x: number;
@@ -36,8 +68,15 @@ export type Locator = {
   tap(): Promise<void>;
   /** Type text into the element. REQUIRES: RNDriverViewTree + keyboard (Phase 3) */
   type(text: string): Promise<void>;
-  /** Wait for element to exist in view tree. REQUIRES: RNDriverViewTree (Phase 3) */
-  waitFor(options?: { timeout?: number }): Promise<void>;
+  /**
+   * Wait for element to reach a specific state.
+   * - "attached": element exists in the view tree
+   * - "visible": element exists AND is visible
+   * - "hidden": element exists but is NOT visible
+   * - "detached": element does NOT exist
+   * REQUIRES: RNDriverViewTree (Phase 3)
+   */
+  waitFor(options?: WaitForOptions): Promise<void>;
   /** Check if element exists and is visible. REQUIRES: RNDriverViewTree (Phase 3) */
   isVisible(): Promise<boolean>;
   /** Get element bounds in logical points. REQUIRES: RNDriverViewTree (Phase 3) */
@@ -111,6 +150,10 @@ export interface Device {
   reload(): Promise<void>;
   background(): Promise<void>;
   foreground(): Promise<void>;
+
+  // --- Capabilities Detection ---
+  /** Get available capabilities from the harness */
+  capabilities(): Promise<Capabilities>;
 
   // --- Utilities (Phase 1) ---
   waitForTimeout(ms: number): Promise<void>;
