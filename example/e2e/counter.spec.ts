@@ -516,6 +516,54 @@ test.describe("Counter App - View Tree Matching", () => {
   });
 });
 
+test.describe("Counter App - Counter Functionality", () => {
+  test("increment, decrement, and reset buttons update count correctly", async ({ device }) => {
+    const caps = await device.evaluate<{ viewTree: boolean }>(
+      "globalThis.__RN_DRIVER__.capabilities",
+    );
+    if (!caps.viewTree) {
+      test.skip();
+      return;
+    }
+
+    // Helper to get current count from display
+    const getCount = async (): Promise<number> => {
+      const text = await device.evaluate<string>(
+        "globalThis.__RN_DRIVER__.viewTree.findByTestId('count-display').then(r => r.success ? r.data.text : 'Count: 0')",
+      );
+      return Number.parseInt(text.replace("Count: ", ""), 10);
+    };
+
+    // Wait for display to be visible
+    await device.getByTestId("count-display").waitFor({ state: "visible", timeout: 5000 });
+
+    // Test increment: tap + button and verify count increases
+    const beforeIncrement = await getCount();
+    await device.getByTestId("increment-button").tap();
+    await device.waitForTimeout(100);
+    expect(await getCount()).toBe(beforeIncrement + 1);
+
+    // Test decrement: tap - button and verify count decreases
+    const beforeDecrement = await getCount();
+    await device.getByTestId("decrement-button").tap();
+    await device.waitForTimeout(100);
+    expect(await getCount()).toBe(beforeDecrement - 1);
+
+    // Test reset: increment a few times, then reset to 0
+    await device.getByTestId("increment-button").tap();
+    await device.waitForTimeout(50);
+    await device.getByTestId("increment-button").tap();
+    await device.waitForTimeout(50);
+    await device.getByTestId("increment-button").tap();
+    await device.waitForTimeout(100);
+    expect(await getCount()).not.toBe(0);
+
+    await device.getByTestId("reset-button").tap();
+    await device.waitForTimeout(100);
+    expect(await getCount()).toBe(0);
+  });
+});
+
 test.describe("Counter App - Lifecycle (Native Module)", () => {
   test("device.openURL() opens URL", async ({ device }) => {
     const capabilities = await device.evaluate<{ lifecycle: boolean }>(
