@@ -98,6 +98,7 @@ export type ViewTreeBridge = {
   getBounds: (handle: string) => Promise<NativeResult<ElementBounds | null>>;
   isVisible: (handle: string) => Promise<NativeResult<boolean>>;
   isEnabled: (handle: string) => Promise<NativeResult<boolean>>;
+  refresh: (handle: string) => Promise<NativeResult<ElementInfo | null>>;
 };
 
 /**
@@ -179,8 +180,15 @@ function tryRequireNativeModule<T>(moduleName: string): T | null {
   try {
     // Dynamic require for Expo modules
     const { requireNativeModule } = require("expo-modules-core");
-    return requireNativeModule(moduleName) as T;
-  } catch {
+    const mod = requireNativeModule(moduleName) as T;
+    if (__DEV__) {
+      console.log(`[RN_DRIVER] Loaded native module: ${moduleName}`);
+    }
+    return mod;
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(`[RN_DRIVER] Failed to load ${moduleName}:`, error);
+    }
     return null;
   }
 }
@@ -233,6 +241,7 @@ function installHarness(): void {
     getBounds: (handle: string) => Promise<NativeResult<ElementBounds | null>>;
     isVisible: (handle: string) => Promise<NativeResult<boolean>>;
     isEnabled: (handle: string) => Promise<NativeResult<boolean>>;
+    refresh: (handle: string) => Promise<NativeResult<ElementInfo | null>>;
   };
 
   type ScreenshotNative = {
@@ -270,6 +279,7 @@ function installHarness(): void {
         getBounds: (handle) => viewTreeNative.getBounds(handle),
         isVisible: (handle) => viewTreeNative.isVisible(handle),
         isEnabled: (handle) => viewTreeNative.isEnabled(handle),
+        refresh: (handle) => viewTreeNative.refresh(handle),
       }
     : {
         findByTestId: async () => notSupportedResult("RNDriverViewTree"),
@@ -281,6 +291,7 @@ function installHarness(): void {
         getBounds: async () => notSupportedResult("RNDriverViewTree"),
         isVisible: async () => notSupportedResult("RNDriverViewTree"),
         isEnabled: async () => notSupportedResult("RNDriverViewTree"),
+        refresh: async () => notSupportedResult("RNDriverViewTree"),
       };
 
   // captureElement is implemented via viewTree.getBounds + captureRegion orchestration

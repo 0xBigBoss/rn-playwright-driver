@@ -43,7 +43,7 @@ export class Pointer {
    */
   async tap(x: number, y: number): Promise<void> {
     await this.ensureHarness();
-    await this.device.evaluate<void>(`global.__RN_DRIVER__.pointer.tap(${x}, ${y})`);
+    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.tap(${x}, ${y})`);
   }
 
   /**
@@ -51,7 +51,7 @@ export class Pointer {
    */
   async down(x: number, y: number): Promise<void> {
     await this.ensureHarness();
-    await this.device.evaluate<void>(`global.__RN_DRIVER__.pointer.down(${x}, ${y})`);
+    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.down(${x}, ${y})`);
   }
 
   /**
@@ -59,7 +59,7 @@ export class Pointer {
    */
   async move(x: number, y: number): Promise<void> {
     await this.ensureHarness();
-    await this.device.evaluate<void>(`global.__RN_DRIVER__.pointer.move(${x}, ${y})`);
+    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.move(${x}, ${y})`);
   }
 
   /**
@@ -67,7 +67,7 @@ export class Pointer {
    */
   async up(): Promise<void> {
     await this.ensureHarness();
-    await this.device.evaluate<void>(`global.__RN_DRIVER__.pointer.up()`);
+    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.up()`);
   }
 
   /**
@@ -108,7 +108,7 @@ export class Pointer {
    */
   private async ensureHarness(): Promise<void> {
     const hasHarness = await this.device.evaluate<boolean>(
-      `typeof global.__RN_DRIVER__ !== 'undefined' && typeof global.__RN_DRIVER__.pointer !== 'undefined'`,
+      `typeof globalThis.__RN_DRIVER__ !== 'undefined' && typeof globalThis.__RN_DRIVER__.pointer !== 'undefined'`,
     );
 
     if (!hasHarness) {

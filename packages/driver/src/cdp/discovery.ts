@@ -5,6 +5,7 @@ export type DebugTarget = {
   vm?: string;
   deviceId?: string;
   deviceName?: string;
+  description?: string;
 };
 
 export type TargetSelectionOptions = {
@@ -27,8 +28,13 @@ export async function discoverTargets(metroUrl: string): Promise<DebugTarget[]> 
   }
   const targets = (await response.json()) as DebugTarget[];
 
-  // Filter to Hermes runtime targets only
-  return targets.filter((t: DebugTarget) => t.title?.includes("Hermes") || t.vm === "Hermes");
+  // Filter to React Native runtime targets
+  // Hermes: title contains "Hermes" or vm === "Hermes"
+  // Bridgeless (RN 0.81+): description contains "React Native Bridgeless"
+  return targets.filter(
+    (t) =>
+      t.title?.includes("Hermes") || t.vm === "Hermes" || t.description?.includes("React Native"),
+  );
 }
 
 /**

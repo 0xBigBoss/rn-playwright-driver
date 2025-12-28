@@ -13,15 +13,15 @@ import { expect, test } from "@0xbigboss/rn-playwright-driver/test";
 
 test.describe("Counter App - Core Features", () => {
   test("harness is installed", async ({ device }) => {
-    // Verify the harness is installed
+    // Verify the harness is installed (use globalThis for Bridgeless RN compatibility)
     const hasHarness = await device.evaluate<boolean>(
-      "typeof global.__RN_DRIVER__ !== 'undefined'",
+      "typeof globalThis.__RN_DRIVER__ !== 'undefined'",
     );
     expect(hasHarness).toBe(true);
   });
 
   test("can read harness version", async ({ device }) => {
-    const version = await device.evaluate<string>("global.__RN_DRIVER__.version");
+    const version = await device.evaluate<string>("globalThis.__RN_DRIVER__.version");
     expect(version).toBe("0.1.0");
   });
 
@@ -42,17 +42,17 @@ test.describe("Counter App - Core Features", () => {
     expect(result).toBe(6);
   });
 
-  test("can access React Native Platform", async ({ device }) => {
-    const platform = await device.evaluate<string>("require('react-native').Platform.OS");
-    expect(["ios", "android"]).toContain(platform);
+  test("can access React Native Platform via device", async ({ device }) => {
+    // device.platform is determined from target metadata
+    expect(["ios", "android"]).toContain(device.platform);
   });
 
   test("pointer tap simulates touch", async ({ device }) => {
     // Register a touch handler to verify taps are dispatched
     await device.evaluate<void>(`
-      global.__testTouchCount = 0;
-      global.__RN_DRIVER__.registerTouchHandler('test', (e) => {
-        if (e.type === 'down') global.__testTouchCount++;
+      globalThis.__testTouchCount = 0;
+      globalThis.__RN_DRIVER__.registerTouchHandler('test', (e) => {
+        if (e.type === 'down') globalThis.__testTouchCount++;
       });
     `);
 
@@ -60,22 +60,22 @@ test.describe("Counter App - Core Features", () => {
     await device.pointer.tap(100, 200);
 
     // Verify touch was dispatched
-    const touchCount = await device.evaluate<number>("global.__testTouchCount");
+    const touchCount = await device.evaluate<number>("globalThis.__testTouchCount");
     expect(touchCount).toBe(1);
 
     // Clean up
     await device.evaluate<void>(`
-      global.__RN_DRIVER__.unregisterTouchHandler('test');
-      delete global.__testTouchCount;
+      globalThis.__RN_DRIVER__.unregisterTouchHandler('test');
+      delete globalThis.__testTouchCount;
     `);
   });
 
   test("pointer drag interpolates movement", async ({ device }) => {
     // Register handler to track move events
     await device.evaluate<void>(`
-      global.__testMoveCount = 0;
-      global.__RN_DRIVER__.registerTouchHandler('test', (e) => {
-        if (e.type === 'move') global.__testMoveCount++;
+      globalThis.__testMoveCount = 0;
+      globalThis.__RN_DRIVER__.registerTouchHandler('test', (e) => {
+        if (e.type === 'move') globalThis.__testMoveCount++;
       });
     `);
 
@@ -83,25 +83,25 @@ test.describe("Counter App - Core Features", () => {
     await device.pointer.drag({ x: 0, y: 0 }, { x: 100, y: 100 }, { steps: 5 });
 
     // Should have 5 move events (one per step)
-    const moveCount = await device.evaluate<number>("global.__testMoveCount");
+    const moveCount = await device.evaluate<number>("globalThis.__testMoveCount");
     expect(moveCount).toBe(5);
 
     // Clean up
     await device.evaluate<void>(`
-      global.__RN_DRIVER__.unregisterTouchHandler('test');
-      delete global.__testMoveCount;
+      globalThis.__RN_DRIVER__.unregisterTouchHandler('test');
+      delete globalThis.__testMoveCount;
     `);
   });
 
   test("waitForFunction polls until truthy", async ({ device }) => {
     // Set up a delayed truthy value
     await device.evaluate<void>(`
-      global.__testDelayed = false;
-      setTimeout(() => { global.__testDelayed = true; }, 100);
+      globalThis.__testDelayed = false;
+      setTimeout(() => { globalThis.__testDelayed = true; }, 100);
     `);
 
     // Wait for it
-    const result = await device.waitForFunction<boolean>("global.__testDelayed", {
+    const result = await device.waitForFunction<boolean>("globalThis.__testDelayed", {
       timeout: 5000,
       polling: 50,
     });
@@ -109,14 +109,14 @@ test.describe("Counter App - Core Features", () => {
     expect(result).toBe(true);
 
     // Clean up
-    await device.evaluate<void>("delete global.__testDelayed");
+    await device.evaluate<void>("delete globalThis.__testDelayed");
   });
 });
 
 test.describe("Counter App - Capabilities Detection", () => {
   test("reports viewTree capability", async ({ device }) => {
     const hasViewTree = await device.evaluate<boolean>(
-      "global.__RN_DRIVER__.capabilities.viewTree",
+      "globalThis.__RN_DRIVER__.capabilities.viewTree",
     );
     // Will be true when native module is installed
     expect(typeof hasViewTree).toBe("boolean");
@@ -124,14 +124,14 @@ test.describe("Counter App - Capabilities Detection", () => {
 
   test("reports screenshot capability", async ({ device }) => {
     const hasScreenshot = await device.evaluate<boolean>(
-      "global.__RN_DRIVER__.capabilities.screenshot",
+      "globalThis.__RN_DRIVER__.capabilities.screenshot",
     );
     expect(typeof hasScreenshot).toBe("boolean");
   });
 
   test("reports lifecycle capability", async ({ device }) => {
     const hasLifecycle = await device.evaluate<boolean>(
-      "global.__RN_DRIVER__.capabilities.lifecycle",
+      "globalThis.__RN_DRIVER__.capabilities.lifecycle",
     );
     expect(typeof hasLifecycle).toBe("boolean");
   });
@@ -141,7 +141,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
   test("getByTestId finds element with testID", async ({ device }) => {
     // This test requires the view-tree native module to be installed
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -157,7 +157,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("getByText finds element with text", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -173,7 +173,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("locator.tap() works with native module", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -181,10 +181,11 @@ test.describe("Counter App - View Tree (Native Module)", () => {
       return;
     }
 
-    // Get initial count
-    const initialCount = await device.evaluate<string>(
-      "global.__RN_DRIVER__.viewTree.findByTestId('count-display').then(r => r.success ? r.data.text : '0')",
+    // Get initial count (text is "Count: N")
+    const initialText = await device.evaluate<string>(
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('count-display').then(r => r.success ? r.data.text : 'Count: 0')",
     );
+    const initialCount = Number.parseInt(initialText.replace("Count: ", ""), 10);
 
     // Tap increment button
     await device.getByTestId("increment-button").tap();
@@ -193,16 +194,17 @@ test.describe("Counter App - View Tree (Native Module)", () => {
     await device.waitForTimeout(100);
 
     // Get new count - should have incremented
-    const newCount = await device.evaluate<string>(
-      "global.__RN_DRIVER__.viewTree.findByTestId('count-display').then(r => r.success ? r.data.text : '0')",
+    const newText = await device.evaluate<string>(
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('count-display').then(r => r.success ? r.data.text : 'Count: 0')",
     );
+    const newCount = Number.parseInt(newText.replace("Count: ", ""), 10);
 
-    expect(Number.parseInt(newCount, 10)).toBeGreaterThanOrEqual(Number.parseInt(initialCount, 10));
+    expect(newCount).toBeGreaterThanOrEqual(initialCount);
   });
 
   test("locator.bounds() returns element bounds", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -225,7 +227,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("getByRole finds element with accessibility role", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -241,7 +243,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("findAll queries return arrays with handles", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -254,7 +256,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
     // Test findAllByText - find elements containing "Count" (from "Count: X")
     const textResult = await device.evaluate<NativeResult<ElementInfo[]>>(
-      "global.__RN_DRIVER__.viewTree.findAllByText('Count', false)",
+      "globalThis.__RN_DRIVER__.viewTree.findAllByText('Count', false)",
     );
     expect(textResult.success).toBe(true);
     if (textResult.success) {
@@ -264,7 +266,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
     // Test findAllByTestId - find increment button (exact match returns 1)
     const testIdResult = await device.evaluate<NativeResult<ElementInfo[]>>(
-      "global.__RN_DRIVER__.viewTree.findAllByTestId('increment-button')",
+      "globalThis.__RN_DRIVER__.viewTree.findAllByTestId('increment-button')",
     );
     expect(testIdResult.success).toBe(true);
     if (testIdResult.success) {
@@ -276,7 +278,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("isEnabled returns element enabled state", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -289,12 +291,12 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
     // Find an element and check isEnabled
     const findResult = await device.evaluate<NativeResult<ElementInfo>>(
-      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
     );
 
     if (findResult.success) {
       const isEnabledResult = await device.evaluate<NativeResult<boolean>>(
-        `global.__RN_DRIVER__.viewTree.isEnabled('${findResult.data.handle}')`,
+        `globalThis.__RN_DRIVER__.viewTree.isEnabled('${findResult.data.handle}')`,
       );
 
       if (isEnabledResult.success) {
@@ -305,7 +307,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
   test("refresh returns updated element info", async ({ device }) => {
     const capabilities = await device.evaluate<{ viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.viewTree) {
@@ -318,13 +320,13 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 
     // Find an element
     const findResult = await device.evaluate<NativeResult<ElementInfo>>(
-      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
     );
 
     if (findResult.success) {
       // Refresh should return updated info
       const refreshResult = await device.evaluate<NativeResult<ElementInfo | null>>(
-        `global.__RN_DRIVER__.viewTree.refresh('${findResult.data.handle}')`,
+        `globalThis.__RN_DRIVER__.viewTree.refresh('${findResult.data.handle}')`,
       );
 
       expect(typeof refreshResult.success).toBe("boolean");
@@ -335,7 +337,7 @@ test.describe("Counter App - View Tree (Native Module)", () => {
 test.describe("Counter App - Screenshot (Native Module)", () => {
   test("device.screenshot() captures screen", async ({ device }) => {
     const capabilities = await device.evaluate<{ screenshot: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.screenshot) {
@@ -356,7 +358,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 
   test("screenshot.captureRegion() captures specific region", async ({ device }) => {
     const capabilities = await device.evaluate<{ screenshot: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.screenshot) {
@@ -368,7 +370,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 
     // Capture a 100x100 region from top-left
     const result = await device.evaluate<NativeResult<string>>(
-      "global.__RN_DRIVER__.screenshot.captureRegion({ x: 0, y: 0, width: 100, height: 100 })",
+      "globalThis.__RN_DRIVER__.screenshot.captureRegion({ x: 0, y: 0, width: 100, height: 100 })",
     );
 
     expect(result.success).toBe(true);
@@ -386,7 +388,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 
   test("screenshot.captureElement() captures element by handle", async ({ device }) => {
     const capabilities = await device.evaluate<{ screenshot: boolean; viewTree: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.screenshot || !capabilities.viewTree) {
@@ -399,7 +401,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 
     // First find an element to get its handle
     const findResult = await device.evaluate<NativeResult<ElementInfo>>(
-      "global.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
     );
 
     if (!findResult.success) {
@@ -409,7 +411,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 
     // Now capture that element using the harness bridge
     const captureResult = await device.evaluate<NativeResult<string>>(
-      `global.__RN_DRIVER__.screenshot.captureElement('${findResult.data.handle}')`,
+      `globalThis.__RN_DRIVER__.screenshot.captureElement('${findResult.data.handle}')`,
     );
 
     expect(captureResult.success).toBe(true);
@@ -428,7 +430,7 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
 test.describe("Counter App - Lifecycle (Native Module)", () => {
   test("device.openURL() opens URL", async ({ device }) => {
     const capabilities = await device.evaluate<{ lifecycle: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.lifecycle) {
@@ -447,7 +449,7 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
 
   test("lifecycle.getState() returns app state", async ({ device }) => {
     const capabilities = await device.evaluate<{ lifecycle: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.lifecycle) {
@@ -456,7 +458,9 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
     }
 
     type StateResult = { success: true; data: string } | { success: false; error: string };
-    const result = await device.evaluate<StateResult>("global.__RN_DRIVER__.lifecycle.getState()");
+    const result = await device.evaluate<StateResult>(
+      "globalThis.__RN_DRIVER__.lifecycle.getState()",
+    );
 
     if (result.success) {
       expect(["active", "background", "inactive"]).toContain(result.data);
@@ -465,7 +469,7 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
 
   test("lifecycle control APIs return valid results", async ({ device }) => {
     const capabilities = await device.evaluate<{ lifecycle: boolean }>(
-      "global.__RN_DRIVER__.capabilities",
+      "globalThis.__RN_DRIVER__.capabilities",
     );
 
     if (!capabilities.lifecycle) {
@@ -477,17 +481,17 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
       | { success: true; data: T }
       | { success: false; error: string; code: string };
 
-    const platform = await device.evaluate<string>("require('react-native').Platform.OS");
+    const platform = device.platform;
 
     // Test reload - may return NOT_SUPPORTED in production
     const reloadResult = await device.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.reload()",
+      "globalThis.__RN_DRIVER__.lifecycle.reload()",
     );
     expect(typeof reloadResult.success).toBe("boolean");
 
     // Test background - iOS returns NOT_SUPPORTED
     const bgResult = await device.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.background()",
+      "globalThis.__RN_DRIVER__.lifecycle.background()",
     );
     if (platform === "ios") {
       expect(bgResult.success).toBe(false);
@@ -495,7 +499,7 @@ test.describe("Counter App - Lifecycle (Native Module)", () => {
 
     // Test foreground - no-op success when already active
     const fgResult = await device.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.foreground()",
+      "globalThis.__RN_DRIVER__.lifecycle.foreground()",
     );
     expect(fgResult.success).toBe(true);
   });

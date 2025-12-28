@@ -21,19 +21,6 @@ struct ElementInfo: Record {
     @Field var enabled: Bool = true
 }
 
-/// Success result wrapper
-struct SuccessResult<T: AnyArgument>: Record {
-    @Field var success: Bool = true
-    @Field var data: T
-}
-
-/// Error result wrapper
-struct ErrorResult: Record {
-    @Field var success: Bool = false
-    @Field var error: String = ""
-    @Field var code: String = ""
-}
-
 public class RNDriverViewTreeModule: Module {
     // WeakMap: handle -> weak view reference
     private var handleToView = NSMapTable<NSString, UIView>.strongToWeakObjects()

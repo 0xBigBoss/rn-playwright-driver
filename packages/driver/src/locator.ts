@@ -154,7 +154,7 @@ export class LocatorImpl implements Locator {
 
     // Use the screenshot bridge to capture the region
     const result = await this.device.evaluate<NativeResult<string>>(`
-      global.__RN_DRIVER__.screenshot.captureRegion({
+      globalThis.__RN_DRIVER__.screenshot.captureRegion({
         x: ${info.bounds.x},
         y: ${info.bounds.y},
         width: ${info.bounds.width},
@@ -213,13 +213,13 @@ export class LocatorImpl implements Locator {
   private buildQueryExpression(): string {
     switch (this.selector.type) {
       case "testId":
-        return `global.__RN_DRIVER__.viewTree.findByTestId(${JSON.stringify(this.selector.value)})`;
+        return `globalThis.__RN_DRIVER__.viewTree.findByTestId(${JSON.stringify(this.selector.value)})`;
       case "text":
-        return `global.__RN_DRIVER__.viewTree.findByText(${JSON.stringify(this.selector.value)}, ${this.selector.exact})`;
+        return `globalThis.__RN_DRIVER__.viewTree.findByText(${JSON.stringify(this.selector.value)}, ${this.selector.exact})`;
       case "role": {
         const nameArg =
           this.selector.name !== undefined ? JSON.stringify(this.selector.name) : "undefined";
-        return `global.__RN_DRIVER__.viewTree.findByRole(${JSON.stringify(this.selector.value)}, ${nameArg})`;
+        return `globalThis.__RN_DRIVER__.viewTree.findByRole(${JSON.stringify(this.selector.value)}, ${nameArg})`;
       }
     }
   }

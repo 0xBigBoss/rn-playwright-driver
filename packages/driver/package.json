@@ -11,9 +11,9 @@
       "require": "./dist/index.js"
     },
     "./harness": {
-      "types": "./dist/harness/index.d.ts",
-      "import": "./dist/harness/index.mjs",
-      "require": "./dist/harness/index.js"
+      "types": "./harness/index.ts",
+      "import": "./harness/index.ts",
+      "require": "./harness/index.ts"
     },
     "./test": {
       "types": "./dist/test.d.ts",
@@ -23,6 +23,7 @@
   },
   "files": [
     "dist",
+    "harness",
     "README.md"
   ],
   "scripts": {

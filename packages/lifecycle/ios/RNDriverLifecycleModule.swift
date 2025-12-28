@@ -10,17 +10,9 @@ public class RNDriverLifecycleModule: Module {
                 return self.errorResult("Invalid URL: \(urlString)", code: "INVALID_URL")
             }
 
-            var opened = false
-            let semaphore = DispatchSemaphore(value: 0)
-
-            DispatchQueue.main.async {
-                UIApplication.shared.open(url, options: [:]) { success in
-                    opened = success
-                    semaphore.signal()
-                }
+            let opened = self.runOnMainThreadAsync { (completion: @escaping (Bool) -> Void) in
+                UIApplication.shared.open(url, options: [:], completionHandler: completion)
             }
-
-            semaphore.wait()
 
             if opened {
                 return self.successResult(NSNull())
@@ -30,31 +22,12 @@ public class RNDriverLifecycleModule: Module {
         }
 
         AsyncFunction("reload") { () -> [String: Any] in
-            // Check if DevSettings is available (dev mode only)
-            guard let devSettingsClass = RCTDevSettings,
-                  let devSettings = devSettingsClass.sharedSettings else {
-                return self.errorResult(
-                    "Reload not available in production builds. DevSettings not found.",
-                    code: "NOT_SUPPORTED"
-                )
-            }
-
-            var reloadCalled = false
-            let semaphore = DispatchSemaphore(value: 0)
-
-            DispatchQueue.main.async {
-                devSettings.reload()
-                reloadCalled = true
-                semaphore.signal()
-            }
-
-            semaphore.wait()
-
-            if reloadCalled {
-                return self.successResult(NSNull())
-            } else {
-                return self.errorResult("Failed to trigger reload", code: "INTERNAL")
-            }
+            // Reload requires DevSettings which is only available in dev mode
+            // and requires complex ObjC bridging. Return NOT_SUPPORTED for now.
+            return self.errorResult(
+                "Reload not supported. Use Metro's reload functionality instead.",
+                code: "NOT_SUPPORTED"
+            )
         }
 
         AsyncFunction("background") { () -> [String: Any] in
@@ -70,26 +43,63 @@ public class RNDriverLifecycleModule: Module {
         }
 
         AsyncFunction("getState") { () -> [String: Any] in
-            var state: String = "active"
-
-            let semaphore = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
+            let state: String = self.runOnMainThread {
                 switch UIApplication.shared.applicationState {
                 case .active:
-                    state = "active"
+                    return "active"
                 case .background:
-                    state = "background"
+                    return "background"
                 case .inactive:
-                    state = "inactive"
+                    return "inactive"
                 @unknown default:
-                    state = "active"
+                    return "active"
                 }
-                semaphore.signal()
             }
-            semaphore.wait()
 
             return self.successResult(state)
         }
+    }
+
+    // MARK: - Thread Safety
+
+    /// Run a closure on the main thread and wait for result.
+    /// If already on main thread, executes synchronously to avoid deadlock.
+    private func runOnMainThread<T>(_ block: @escaping () -> T) -> T {
+        if Thread.isMainThread {
+            return block()
+        }
+
+        var result: T!
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            result = block()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+
+    /// Run an async callback-based operation on the main thread.
+    /// If already on main thread, executes synchronously to avoid deadlock.
+    private func runOnMainThreadAsync<T>(_ block: @escaping (@escaping (T) -> Void) -> Void) -> T {
+        var result: T!
+        let semaphore = DispatchSemaphore(value: 0)
+
+        let dispatch = {
+            block { value in
+                result = value
+                semaphore.signal()
+            }
+        }
+
+        if Thread.isMainThread {
+            dispatch()
+        } else {
+            DispatchQueue.main.async(execute: dispatch)
+        }
+
+        semaphore.wait()
+        return result
     }
 
     // MARK: - Result Helpers
@@ -103,19 +113,3 @@ public class RNDriverLifecycleModule: Module {
     }
 }
 
-// Optional: Forward declare RCTDevSettings for reload functionality
-@objc protocol RCTDevSettingsProtocol {
-    func reload()
-}
-
-private var RCTDevSettings: RCTDevSettingsProtocol.Type? {
-    return NSClassFromString("RCTDevSettings") as? RCTDevSettingsProtocol.Type
-}
-
-extension RCTDevSettingsProtocol {
-    static var sharedSettings: RCTDevSettingsProtocol? {
-        let selector = NSSelectorFromString("sharedSettings")
-        guard (self as AnyClass).responds(to: selector) else { return nil }
-        return (self as AnyClass).perform(selector)?.takeUnretainedValue() as? RCTDevSettingsProtocol
-    }
-}

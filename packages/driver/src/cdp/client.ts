@@ -92,10 +92,37 @@ export class CDPClient {
   }
 
   async evaluate<T>(expression: string): Promise<T> {
+    const resultId = `__CDP_RESULT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const wrappedExpression = `
+      (function() {
+        try {
+          const value = (${expression});
+          if (value && typeof value.then === 'function') {
+            const id = '${resultId}';
+            globalThis[id] = { pending: true };
+            value.then(
+              function(v) {
+                const hasValue = typeof v !== 'undefined';
+                globalThis[id] = { done: true, hasValue: hasValue, value: v };
+              },
+              function(e) {
+                globalThis[id] = { done: true, error: e && e.message ? e.message : String(e) };
+              }
+            );
+            return { async: true, id: id };
+          }
+          const hasValue = typeof value !== 'undefined';
+          return { async: false, hasValue: hasValue, value: value };
+        } catch (e) {
+          return { async: false, error: e && e.message ? e.message : String(e) };
+        }
+      })()
+    `;
+
     const result = await this.send("Runtime.evaluate", {
-      expression,
+      expression: wrappedExpression,
       returnByValue: true,
-      awaitPromise: true,
     });
     if (result.exceptionDetails) {
       const text =
@@ -104,7 +131,82 @@ export class CDPClient {
         "Unknown error";
       throw new Error(`CDP evaluate failed: ${text}`);
     }
-    return result.result?.value as T;
+
+    type EvaluatePayload =
+      | { async: true; id: string }
+      | { async: false; hasValue: boolean; value?: T }
+      | { async: false; error: string };
+
+    const payload = result.result?.value as EvaluatePayload | undefined;
+    if (!payload) {
+      throw new Error("CDP evaluate failed: empty result");
+    }
+
+    if ("error" in payload) {
+      throw new Error(`CDP evaluate failed: ${payload.error}`);
+    }
+
+    if (payload.async) {
+      return this.pollForResult<T>(payload.id);
+    }
+
+    return (payload.hasValue ? payload.value : undefined) as T;
+  }
+
+  /**
+   * Poll for a result stored in globalThis by evaluate().
+   */
+  private async pollForResult<T>(resultId: string): Promise<T> {
+    const startTime = Date.now();
+    const timeout = this.options.timeout;
+
+    while (Date.now() - startTime < timeout) {
+      const checkExpr = `
+        (function() {
+          const r = globalThis['${resultId}'];
+          if (r && r.done) {
+            delete globalThis['${resultId}'];
+            return r;
+          }
+          return { pending: true };
+        })()
+      `;
+
+      const checkResult = await this.send("Runtime.evaluate", {
+        expression: checkExpr,
+        returnByValue: true,
+      });
+
+      if (checkResult.exceptionDetails) {
+        const text =
+          checkResult.exceptionDetails.text ??
+          checkResult.exceptionDetails.exception?.description ??
+          "Unknown error";
+        throw new Error(`CDP evaluate failed: ${text}`);
+      }
+
+      const status = checkResult.result?.value as
+        | { pending: true }
+        | { done: true; hasValue: boolean; value?: T }
+        | { done: true; error: string };
+
+      if (status && "done" in status && status.done) {
+        if ("error" in status) {
+          throw new Error(`CDP evaluate failed: ${status.error}`);
+        }
+        return (status.hasValue ? status.value : undefined) as T;
+      }
+
+      // Wait a bit before polling again
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    // Cleanup and throw timeout
+    await this.send("Runtime.evaluate", {
+      expression: `delete globalThis['${resultId}']`,
+      returnByValue: true,
+    });
+    throw new Error(`CDP evaluate timed out after ${timeout}ms`);
   }
 
   private async send(method: string, params: object): Promise<CDPResult> {

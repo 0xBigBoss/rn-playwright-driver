@@ -86,3 +86,7 @@ Full design document at: `../sortessori.prototypes/react-native-three-prototype/
 - Unit tests: `vitest` for pure logic (CDP client, discovery)
 - Integration: Requires real device with Metro running
 - E2E: Test the driver against a sample RN app
+
+## Development Notes
+
+- `npx expo run:ios --device "iPhone 16 Pro"` does a full iOS native build, then starts a Metro bundler dev server that does not exit (it's a file watcher). Run E2E tests in a separate terminal while Metro is running.

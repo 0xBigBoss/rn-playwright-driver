@@ -110,7 +110,7 @@ export class RNDevice implements Device {
       // Capture specific region
       const { x, y, width, height } = options.clip;
       result = await this.evaluate<NativeResult<string>>(`
-        global.__RN_DRIVER__.screenshot.captureRegion({
+        globalThis.__RN_DRIVER__.screenshot.captureRegion({
           x: ${x},
           y: ${y},
           width: ${width},
@@ -120,7 +120,7 @@ export class RNDevice implements Device {
     } else {
       // Capture full screen
       result = await this.evaluate<NativeResult<string>>(
-        "global.__RN_DRIVER__.screenshot.captureScreen()",
+        "globalThis.__RN_DRIVER__.screenshot.captureScreen()",
       );
     }
 
@@ -136,7 +136,7 @@ export class RNDevice implements Device {
 
   async openURL(url: string): Promise<void> {
     const result = await this.evaluate<NativeResult<void>>(
-      `global.__RN_DRIVER__.lifecycle.openURL(${JSON.stringify(url)})`,
+      `globalThis.__RN_DRIVER__.lifecycle.openURL(${JSON.stringify(url)})`,
     );
 
     if (!result.success) {
@@ -146,7 +146,7 @@ export class RNDevice implements Device {
 
   async reload(): Promise<void> {
     const result = await this.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.reload()",
+      "globalThis.__RN_DRIVER__.lifecycle.reload()",
     );
 
     if (!result.success) {
@@ -156,7 +156,7 @@ export class RNDevice implements Device {
 
   async background(): Promise<void> {
     const result = await this.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.background()",
+      "globalThis.__RN_DRIVER__.lifecycle.background()",
     );
 
     if (!result.success) {
@@ -166,7 +166,7 @@ export class RNDevice implements Device {
 
   async foreground(): Promise<void> {
     const result = await this.evaluate<NativeResult<void>>(
-      "global.__RN_DRIVER__.lifecycle.foreground()",
+      "globalThis.__RN_DRIVER__.lifecycle.foreground()",
     );
 
     if (!result.success) {
