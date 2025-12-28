@@ -1,6 +1,9 @@
 import ExpoModulesCore
 import UIKit
 
+// Import RNDriverHandleRegistry from view-tree module for cross-module handle resolution
+// The registry is defined in RNDriverViewTreeModule.swift
+
 public class RNDriverScreenshotModule: Module {
     public func definition() -> ModuleDefinition {
         Name("RNDriverScreenshot")
@@ -23,16 +26,24 @@ public class RNDriverScreenshotModule: Module {
             }
         }
 
-        // Note: captureElement is implemented via JS bridge in the harness
-        // The harness calls viewTree.getBounds(handle) then screenshot.captureRegion()
-        // This native function is a placeholder for direct handle capture if needed
         AsyncFunction("captureElement") { (handle: String) -> [String: Any] in
-            // This would require cross-module handle registry which adds complexity
-            // Instead, use the harness bridge which orchestrates viewTree + screenshot
-            return self.errorResult(
-                "Use harness bridge: global.__RN_DRIVER__.screenshot.captureElement(handle)",
-                code: "NOT_SUPPORTED"
-            )
+            return self.runOnMainThread {
+                // Resolve handle to UIView via shared registry
+                guard let view = RNDriverHandleRegistry.shared.resolve(handle: handle) else {
+                    return self.errorResult("Element not found for handle: \(handle)", code: "NOT_FOUND")
+                }
+
+                // Render the view to an image
+                guard let image = self.captureView(view) else {
+                    return self.errorResult("Failed to capture element", code: "INTERNAL")
+                }
+
+                guard let base64 = self.imageToBase64(image) else {
+                    return self.errorResult("Failed to encode image", code: "INTERNAL")
+                }
+
+                return self.successResult(base64)
+            }
         }
 
         AsyncFunction("captureRegion") { (x: Double, y: Double, width: Double, height: Double) -> [String: Any] in

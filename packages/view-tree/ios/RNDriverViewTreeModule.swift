@@ -1,6 +1,47 @@
 import ExpoModulesCore
 import UIKit
 
+/// Shared handle registry for cross-module view resolution.
+/// This registry is the canonical source - the screenshot module imports it
+/// to resolve handles when capturing element screenshots.
+public class RNDriverHandleRegistry {
+    public static let shared = RNDriverHandleRegistry()
+
+    private var handleToView = NSMapTable<NSString, UIView>.strongToWeakObjects()
+    private var viewToHandle = NSMapTable<UIView, NSString>.weakToStrongObjects()
+    private let lock = NSLock()
+
+    private init() {}
+
+    public func register(view: UIView, handle: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        handleToView.setObject(view, forKey: handle as NSString)
+        viewToHandle.setObject(handle as NSString, forKey: view)
+    }
+
+    public func resolve(handle: String) -> UIView? {
+        lock.lock()
+        defer { lock.unlock() }
+        return handleToView.object(forKey: handle as NSString)
+    }
+
+    public func getOrCreateHandle(for view: UIView) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let existing = viewToHandle.object(forKey: view) {
+            return existing as String
+        }
+
+        let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let handle = "element_\(String(uuid.prefix(16)))"
+        handleToView.setObject(view, forKey: handle as NSString)
+        viewToHandle.setObject(handle as NSString, forKey: view)
+        return handle
+    }
+}
+
 /// Element bounds in logical points
 struct ElementBounds: Record {
     @Field var x: Double = 0
@@ -22,11 +63,6 @@ struct ElementInfo: Record {
 }
 
 public class RNDriverViewTreeModule: Module {
-    // WeakMap: handle -> weak view reference
-    private var handleToView = NSMapTable<NSString, UIView>.strongToWeakObjects()
-    // Reverse lookup for reusing handles
-    private var viewToHandle = NSMapTable<UIView, NSString>.weakToStrongObjects()
-
     public func definition() -> ModuleDefinition {
         Name("RNDriverViewTree")
 
@@ -143,24 +179,14 @@ public class RNDriverViewTreeModule: Module {
         return result
     }
 
-    // MARK: - Handle Management
+    // MARK: - Handle Management (uses shared registry for cross-module access)
 
     private func getOrCreateHandle(for view: UIView) -> String {
-        // Reuse existing handle if view already tracked
-        if let existing = viewToHandle.object(forKey: view) {
-            return existing as String
-        }
-
-        // Generate new handle
-        let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let handle = "element_\(String(uuid.prefix(16)))"
-        handleToView.setObject(view, forKey: handle as NSString)
-        viewToHandle.setObject(handle as NSString, forKey: view)
-        return handle
+        return RNDriverHandleRegistry.shared.getOrCreateHandle(for: view)
     }
 
     private func resolveHandle(_ handle: String) -> UIView? {
-        return handleToView.object(forKey: handle as NSString)
+        return RNDriverHandleRegistry.shared.resolve(handle: handle)
     }
 
     // MARK: - View Traversal

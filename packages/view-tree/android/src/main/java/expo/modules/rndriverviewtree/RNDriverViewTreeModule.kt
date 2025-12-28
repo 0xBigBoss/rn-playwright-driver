@@ -11,16 +11,9 @@ import android.widget.Switch
 import android.widget.TextView
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.lang.ref.WeakReference
-import java.util.UUID
-import java.util.WeakHashMap
 import java.util.concurrent.CountDownLatch
 
 class RNDriverViewTreeModule : Module() {
-    // WeakHashMap: View -> handle (auto-cleans when view is GC'd)
-    private val viewToHandle = WeakHashMap<View, String>()
-    // Regular map for reverse lookup (cleaned manually)
-    private val handleToView = mutableMapOf<String, WeakReference<View>>()
 
     override fun definition() = ModuleDefinition {
         Name("RNDriverViewTree")
@@ -129,27 +122,14 @@ class RNDriverViewTreeModule : Module() {
         return result as T
     }
 
-    // MARK: - Handle Management
+    // MARK: - Handle Management (uses shared registry for cross-module access)
 
     private fun getOrCreateHandle(view: View): String {
-        // Reuse existing handle if view already tracked
-        viewToHandle[view]?.let { return it }
-
-        // Generate new handle
-        val handle = "element_${UUID.randomUUID().toString().replace("-", "").take(16)}"
-        viewToHandle[view] = handle
-        handleToView[handle] = WeakReference(view)
-        return handle
+        return RNDriverHandleRegistry.getOrCreateHandle(view)
     }
 
     private fun resolveHandle(handle: String): View? {
-        val ref = handleToView[handle] ?: return null
-        val view = ref.get()
-        if (view == null) {
-            // View was garbage collected, clean up
-            handleToView.remove(handle)
-        }
-        return view
+        return RNDriverHandleRegistry.resolve(handle)
     }
 
     // MARK: - View Traversal

@@ -10,7 +10,9 @@ import android.view.PixelCopy
 import android.view.View
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.rndriverviewtree.RNDriverHandleRegistry
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class RNDriverScreenshotModule : Module() {
@@ -35,15 +37,25 @@ class RNDriverScreenshotModule : Module() {
             successResult(base64)
         }
 
-        // Note: captureElement is implemented via JS bridge in the harness
-        // The harness calls viewTree.getBounds(handle) then screenshot.captureRegion()
         AsyncFunction("captureElement") { handle: String ->
-            // This would require cross-module handle registry which adds complexity
-            // Instead, use the harness bridge which orchestrates viewTree + screenshot
-            errorResult(
-                "Use harness bridge: global.__RN_DRIVER__.screenshot.captureElement(handle)",
-                "NOT_SUPPORTED"
-            )
+            runOnUiThreadBlocking {
+                // Resolve handle to View via shared registry
+                val view = RNDriverHandleRegistry.resolve(handle)
+                    ?: return@runOnUiThreadBlocking errorResult("Element not found for handle: $handle", "NOT_FOUND")
+
+                // Capture the view to a bitmap
+                val bitmap = captureViewDirect(view)
+                    ?: return@runOnUiThreadBlocking errorResult("Failed to capture element", "INTERNAL")
+
+                val base64 = bitmapToBase64(bitmap)
+                bitmap.recycle()
+
+                if (base64 == null) {
+                    return@runOnUiThreadBlocking errorResult("Failed to encode image", "INTERNAL")
+                }
+
+                successResult(base64)
+            }
         }
 
         AsyncFunction("captureRegion") { x: Double, y: Double, width: Double, height: Double ->
@@ -154,5 +166,56 @@ class RNDriverScreenshotModule : Module() {
 
     private fun errorResult(error: String, code: String): Map<String, Any?> {
         return mapOf("success" to false, "error" to error, "code" to code)
+    }
+
+    // MARK: - Thread Safety
+
+    /**
+     * Run a block on the UI thread and wait for result.
+     * Required for View hierarchy access which must happen on UI thread.
+     */
+    private fun <T> runOnUiThreadBlocking(block: () -> T): T {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return block()
+        }
+
+        val latch = CountDownLatch(1)
+        var result: T? = null
+        var exception: Exception? = null
+
+        Handler(Looper.getMainLooper()).post {
+            try {
+                result = block()
+            } catch (e: Exception) {
+                exception = e
+            }
+            latch.countDown()
+        }
+
+        latch.await()
+
+        exception?.let { throw it }
+        @Suppress("UNCHECKED_CAST")
+        return result as T
+    }
+
+    /**
+     * Capture a specific view directly using canvas drawing.
+     * For individual elements, we use canvas drawing rather than PixelCopy
+     * since PixelCopy works on the entire window.
+     */
+    private fun captureViewDirect(view: View): Bitmap? {
+        if (view.width <= 0 || view.height <= 0) {
+            return null
+        }
+
+        return try {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            view.draw(canvas)
+            bitmap
+        } catch (e: Exception) {
+            null
+        }
     }
 }
