@@ -427,6 +427,95 @@ test.describe("Counter App - Screenshot (Native Module)", () => {
   });
 });
 
+test.describe("Counter App - Locator waitFor States", () => {
+  test("waitFor supports attached, visible, and detached states", async ({ device }) => {
+    const caps = await device.evaluate<{ viewTree: boolean }>(
+      "globalThis.__RN_DRIVER__.capabilities",
+    );
+    if (!caps.viewTree) {
+      test.skip();
+      return;
+    }
+
+    // Test 'attached' - element exists in view tree
+    const button = device.getByTestId("increment-button");
+    await button.waitFor({ state: "attached", timeout: 5000 });
+    expect(await button.isVisible()).toBeDefined();
+
+    // Test 'visible' - element exists AND is visible (also the default)
+    const display = device.getByTestId("count-display");
+    await display.waitFor({ state: "visible", timeout: 5000 });
+    expect(await display.isVisible()).toBe(true);
+
+    // Test default state is 'visible'
+    await button.waitFor({ timeout: 5000 });
+    expect(await button.isVisible()).toBe(true);
+
+    // Test 'detached' - should timeout for existing element
+    let timedOut = false;
+    try {
+      await button.waitFor({ state: "detached", timeout: 300 });
+    } catch (e) {
+      timedOut = (e as Error).message.includes("timed out");
+    }
+    expect(timedOut).toBe(true);
+  });
+});
+
+test.describe("Counter App - View Tree Matching", () => {
+  test("view tree matching and element properties", async ({ device }) => {
+    const caps = await device.evaluate<{ viewTree: boolean }>(
+      "globalThis.__RN_DRIVER__.capabilities",
+    );
+    if (!caps.viewTree) {
+      test.skip();
+      return;
+    }
+
+    type Result<T> = { success: true; data: T } | { success: false };
+    type Elem = {
+      handle: string;
+      text: string | null;
+      role: string | null;
+      label: string | null;
+      visible: boolean;
+      enabled: boolean;
+    };
+
+    // Test partial text matching (exact=false)
+    const partial = await device.evaluate<Result<Elem>>(
+      "globalThis.__RN_DRIVER__.viewTree.findByText('Count', false)",
+    );
+    expect(partial.success).toBe(true);
+    if (partial.success) expect(partial.data.text).toContain("Count");
+
+    // Test exact text matching (exact=true)
+    const exact = await device.evaluate<Result<Elem>>(
+      "globalThis.__RN_DRIVER__.viewTree.findByText('Counter', true)",
+    );
+    expect(exact.success).toBe(true);
+
+    // Test role matching
+    const byRole = await device.evaluate<Result<Elem>>(
+      "globalThis.__RN_DRIVER__.viewTree.findByRole('button', null)",
+    );
+    expect(byRole.success).toBe(true);
+    if (byRole.success) expect(byRole.data.role).toBe("button");
+
+    // Test element info includes all required properties
+    const info = await device.evaluate<Result<Elem>>(
+      "globalThis.__RN_DRIVER__.viewTree.findByTestId('increment-button')",
+    );
+    expect(info.success).toBe(true);
+    if (info.success) {
+      expect(info.data).toHaveProperty("text");
+      expect(info.data).toHaveProperty("label");
+      expect(typeof info.data.visible).toBe("boolean");
+      expect(typeof info.data.enabled).toBe("boolean");
+    }
+  });
+});
+
 test.describe("Counter App - Lifecycle (Native Module)", () => {
   test("device.openURL() opens URL", async ({ device }) => {
     const capabilities = await device.evaluate<{ lifecycle: boolean }>(

@@ -295,13 +295,30 @@ function installHarness(): void {
         refresh: async () => notSupportedResult("RNDriverViewTree"),
       };
 
-  // captureElement is implemented via viewTree.getBounds + captureRegion orchestration
+  // captureElement uses native captureElement when available (shared handle registry),
+  // with fallback to viewTree.getBounds + captureRegion for older installations
   const captureElementBridge = async (handle: string): Promise<NativeResult<string>> => {
-    if (!viewTreeNative || !screenshotNative) {
-      return notSupportedResult("RNDriverViewTree and RNDriverScreenshot");
+    if (!screenshotNative) {
+      return notSupportedResult("RNDriverScreenshot");
     }
 
-    // Get element bounds from view-tree module
+    // Try native captureElement first (uses shared handle registry with view-tree module)
+    const nativeResult = await screenshotNative.captureElement(handle);
+    if (nativeResult.success) {
+      return nativeResult;
+    }
+
+    // If native captureElement failed with NOT_SUPPORTED (old module version), fall back
+    // Otherwise return the error (e.g., NOT_FOUND means stale handle)
+    if (!nativeResult.success && nativeResult.code !== "NOT_SUPPORTED") {
+      return nativeResult;
+    }
+
+    // Fallback: use viewTree.getBounds + captureRegion
+    if (!viewTreeNative) {
+      return notSupportedResult("RNDriverViewTree");
+    }
+
     const boundsResult = await viewTreeNative.getBounds(handle);
     if (!boundsResult.success) {
       return boundsResult as NativeResult<string>;
@@ -316,7 +333,6 @@ function installHarness(): void {
       };
     }
 
-    // Capture the region at those bounds
     return screenshotNative.captureRegion(bounds.x, bounds.y, bounds.width, bounds.height);
   };
 
