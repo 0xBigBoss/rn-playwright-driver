@@ -5,7 +5,7 @@ Future improvements for rn-playwright-driver, organized by effort and impact.
 ## Quick Wins
 
 ### GitHub Actions CI Workflow
-- [ ] Create `.github/workflows/ci.yml` for unit tests and linting
+- [x] Create `.github/workflows/ci.yml` for unit tests and linting
 - [ ] Add self-hosted macOS runner for E2E tests with iOS Simulator
 - [ ] Add Android emulator job for cross-platform coverage
 - Reference: `docs/CI.md` has setup instructions
@@ -18,12 +18,12 @@ await expect(locator).toHaveText("Count: 5");
 await expect(locator).toBeEnabled();
 await expect(locator).toBeDisabled();
 ```
-- [ ] Create `packages/driver/src/expect.ts` with matcher implementations
-- [ ] Add polling/retry logic with configurable timeout
-- [ ] Export from `@0xbigboss/rn-playwright-driver/test`
+- [x] Create `packages/driver/src/expect.ts` with matcher implementations
+- [x] Add polling/retry logic with configurable timeout
+- [x] Export from `@0xbigboss/rn-playwright-driver/test`
 
 ### Keyboard Input
-- [ ] Implement `Locator.type(text)` for text input
+- [x] Implement `Locator.type(text)` for text input (stub with NOT_SUPPORTED - requires native module)
 - [ ] Add `Locator.clear()` to clear input fields
 - [ ] Add `Locator.press(key)` for special keys (Enter, Tab, Backspace)
 - [ ] Requires native keyboard simulation or focus + text injection
@@ -33,9 +33,42 @@ await expect(locator).toBeDisabled();
 await locator.scrollIntoView();
 await device.pointer.swipe({ from: {x, y}, to: {x, y2}, duration: 300 });
 ```
-- [ ] Add `scrollIntoView()` to Locator
-- [ ] Add `swipe()` to pointer interface
+- [x] Add `scrollIntoView()` to Locator (stub with NOT_SUPPORTED - requires native module)
+- [x] Add `swipe()` to pointer interface
 - [ ] Add `fling()` for fast scrolls
+
+## Touch Backend Tiers (Phase 2.5)
+
+OS-level touch injection matching idb/adb capabilities. See `docs/NATIVE-MODULES-ARCHITECTURE.md` for full architecture.
+
+### Tier 1: XCTest/Instrumentation Companion (OS-level)
+Kernel-level touch injection via companion process. Enables system UI interaction, keyboard input, and cross-app testing.
+
+- [x] **XCTest Companion (iOS)**: WebSocket server using XCUICoordinate for IOHIDEvent injection
+- [x] **Instrumentation Companion (Android)**: HTTP server using UiAutomation.injectInputEvent()
+- [x] Driver backend clients (XCTestTouchBackend, InstrumentationTouchBackend)
+
+### Tier 2: Native Module Touch Injector (App-level)
+In-app touch synthesis for network-capable testing without companion process.
+
+- [ ] **RNDriverTouchInjector iOS**: UIApplication.sendEvent() with synthesized UITouch/UIEvent
+- [ ] **RNDriverTouchInjector Android**: view.dispatchTouchEvent() with MotionEvent
+- [x] Driver backend (NativeModuleTouchBackend)
+- [x] Harness integration (touchNative bridge types)
+
+### Tier 3: CLI Backend (idb/adb)
+Fallback to spawning idb/adb CLI commands for touch injection.
+
+- [ ] CliTouchBackend with idb support
+- [ ] CliTouchBackend with adb support
+
+### Touch Backend Infrastructure
+- [x] TouchBackend interface definition
+- [x] TouchBackendConfig types
+- [x] Backend factory with auto-selection
+- [x] Pointer class refactored to use TouchBackend
+- [x] Harness touchNative bridge types
+- [ ] Integration tests for each backend tier
 
 ## Medium Effort
 
@@ -45,10 +78,10 @@ Find elements within other elements:
 await device.getByTestId("login-form").getByRole("button", { name: "Submit" }).tap();
 await device.getByTestId("user-list").nth(2).getByText("Edit").tap();
 ```
-- [ ] Add `Locator.getByTestId()`, `getByText()`, `getByRole()` for scoped queries
-- [ ] Add `Locator.nth(index)` for selecting from multiple matches
-- [ ] Add `Locator.first()` and `Locator.last()` helpers
-- [ ] Update native modules to support scoped queries
+- [x] Add `Locator.getByTestId()`, `getByText()`, `getByRole()` for scoped queries
+- [x] Add `Locator.nth(index)` for selecting from multiple matches
+- [x] Add `Locator.first()` and `Locator.last()` helpers
+- [ ] Update native modules to support scoped queries (currently client-side filtering)
 
 ### Network Interception
 Mock API responses for deterministic tests:
@@ -65,10 +98,10 @@ Interactive mode for exploring the view tree:
 ```bash
 bun run inspect  # Launch inspector
 ```
-- [ ] Create `packages/driver/bin/inspect.ts` CLI
-- [ ] Real-time view tree display with refresh
+- [x] Create `packages/driver/bin/inspect.ts` CLI
+- [x] Real-time view tree display with refresh (`--watch` flag)
 - [ ] Tap-to-select for generating locator code
-- [ ] Filter by testID, text, role
+- [x] Filter by testID, text, role (`--filter` flag)
 
 ### Visual Regression Testing
 Screenshot comparison with diff detection:
@@ -76,9 +109,10 @@ Screenshot comparison with diff detection:
 await expect(device.screenshot()).toMatchSnapshot("home-screen.png");
 await expect(locator.screenshot()).toMatchSnapshot("button.png");
 ```
-- [ ] Integrate with `jest-image-snapshot` or similar
-- [ ] Add threshold configuration for acceptable differences
-- [ ] Generate visual diff reports on failure
+- [x] Implement `toMatchSnapshot()` for locators with pixel-level comparison (pixelmatch)
+- [x] Add threshold configuration (`maxDiffPixelRatio`)
+- [x] Save diff images on failure (visual diff highlighting pixel differences)
+- [ ] Generate visual diff reports on failure (HTML reports with side-by-side comparison)
 
 ## Larger Initiatives
 

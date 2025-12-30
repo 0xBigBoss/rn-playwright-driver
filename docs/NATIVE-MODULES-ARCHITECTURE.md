@@ -14,7 +14,7 @@ This document describes the complete architecture for Phase 3 native modules in 
 | Decision | Choice |
 |----------|--------|
 | Repository structure | Monorepo (`packages/driver`, `packages/view-tree`, etc.) |
-| Touch simulation | JS harness (Phase 2) - no native touch injection |
+| Touch injection | Tiered backends: companion (OS-level) → native module → CLI → harness |
 | Element handles | Random IDs (`element_{16-char-hex}`) |
 | View tree queries | Fresh traversal (no caching) |
 | Native module API | Expo Modules API (Swift + Kotlin) |
@@ -23,12 +23,15 @@ This document describes the complete architecture for Phase 3 native modules in 
 
 ### Packages
 
-| Package | Purpose | Priority |
-|---------|---------|----------|
-| `@0xbigboss/rn-playwright-driver` | Test driver (no native code) | Phase 1-2 ✅ |
-| `@0xbigboss/rn-driver-view-tree` | Element queries, bounds, visibility | Phase 3.1 |
-| `@0xbigboss/rn-driver-screenshot` | Screen/element capture | Phase 3.2 |
-| `@0xbigboss/rn-driver-lifecycle` | App state control | Phase 3.3 |
+| Package | Purpose | Status |
+|---------|---------|--------|
+| `@0xbigboss/rn-playwright-driver` | Test driver (no native code) | ✅ Complete |
+| `@0xbigboss/rn-driver-view-tree` | Element queries, bounds, visibility | ✅ Complete |
+| `@0xbigboss/rn-driver-screenshot` | Screen/element capture | ✅ Complete |
+| `@0xbigboss/rn-driver-lifecycle` | App state control | 🔶 Partial |
+| `@0xbigboss/rn-playwright-driver-xctest-companion` | iOS OS-level touch injection | ✅ Reference impl (manual integration) |
+| `@0xbigboss/rn-playwright-driver-instrumentation-companion` | Android OS-level touch injection | ✅ Reference impl (manual integration) |
+| `@0xbigboss/rn-driver-touch-injector` | In-app touch synthesis | ❌ Not started |
 
 ## System Architecture
 
@@ -859,3 +862,427 @@ class RNDriverViewTreeModule : Module() {
 2. **Reuse**: Same view returns same handle across multiple queries
 3. **Invalidation**: Handle becomes invalid when native view is deallocated
 4. **Resolution**: `getBounds(handle)` / `isVisible(handle)` return null for invalid handles
+
+---
+
+## Touch Injection Architecture
+
+The driver supports multiple touch injection backends, organized in tiers by capability level. This enables OS-level touch injection (like idb/adb) while maintaining fallback options for simpler setups.
+
+### Two-Channel Design
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Test Runner (Node.js)                             │
+│                                                                              │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
+│   │                         RNDevice                                      │  │
+│   │                                                                       │  │
+│   │   CDP Channel ─────────────────────────────────────────────────────►  │  │
+│   │   (element queries, screenshots, JS eval, lifecycle)                  │  │
+│   │                                                                       │  │
+│   │   Touch Channel ───────────────────────────────────────────────────►  │  │
+│   │   (touch injection via selected backend)                              │  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────────────┘
+           │                                         │
+           │ CDP (WebSocket)                         │ Backend-specific
+           │                                         │
+           ▼                                         ▼
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                          iOS Simulator / Device                                 │
+│                                                                                 │
+│   ┌──────────────────────────────────┐    ┌─────────────────────────────────┐  │
+│   │      React Native App            │    │      Companion Process          │  │
+│   │                                  │    │      (XCTest / Instrumentation) │  │
+│   │   Hermes Runtime                 │    │                                 │  │
+│   │   ├─ CDP endpoint                │    │   - WebSocket/HTTP Server       │  │
+│   │   ├─ __RN_DRIVER__ harness       │    │   - OS-level touch injection    │  │
+│   │   │  ├─ viewTree                 │    │   - System UI interaction       │  │
+│   │   │  ├─ screenshot               │    │   - Keyboard input              │  │
+│   │   │  ├─ lifecycle                │    │                                 │  │
+│   │   │  └─ touchNative (optional)   │    │                                 │  │
+│   │   └─ (CDP serves all queries)    │    │                                 │  │
+│   └──────────────────────────────────┘    └──────────────────┬──────────────┘  │
+│                  ▲                                           │                  │
+│                  │         Kernel-level injection            │                  │
+│                  └───────────────────────────────────────────┘                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Touch Backend Tiers
+
+| Tier | Backend | Injection Level | System UI | Network | Requirements |
+|------|---------|-----------------|-----------|---------|--------------|
+| 1 | XCTest (iOS) / Instrumentation (Android) | Kernel (IOHIDEvent / UiAutomation) | ✅ | ❌ Local | Companion process |
+| 2 | Native Module (RNDriverTouchInjector) | App (UIKit / MotionEvent) | ❌ | ✅ | Native module in app |
+| 3 | CLI (idb / adb) | Kernel | ✅ | ❌ Local | Tools installed |
+| 4 | JS Harness | Synthetic (React events) | ❌ | ✅ | Harness import only |
+
+### Backend Selection
+
+```typescript
+type TouchBackendType = "xctest" | "instrumentation" | "native-module" | "cli" | "harness";
+
+type TouchBackendConfig = {
+  /** Selection mode (default: "auto") */
+  mode?: "auto" | "force";
+  /** Force a specific backend when mode === "force" */
+  backend?: TouchBackendType;
+  /** Ordered backend preference when mode === "auto" */
+  order?: TouchBackendType[];
+  /** Per-backend configuration */
+  xctest?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    connectTimeoutMs?: number;
+    requestTimeoutMs?: number;
+  };
+  instrumentation?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    connectTimeoutMs?: number;
+    requestTimeoutMs?: number;
+  };
+  nativeModule?: { enabled?: boolean };
+  cli?: { enabled?: boolean };
+  harness?: { enabled?: boolean };
+};
+```
+
+**Auto-selection logic** (default):
+
+The driver tries backends in platform-specific order until one successfully initializes:
+
+- **iOS**: `xctest` → `native-module` → `cli` → `harness`
+- **Android**: `instrumentation` → `native-module` → `cli` → `harness`
+
+For each backend:
+1. Check if supported on current platform (e.g., `xctest` is iOS-only)
+2. Check if enabled in config (all enabled by default)
+3. Attempt to initialize (connect and send `hello` command)
+4. If init succeeds, use that backend; if fails, try next in order
+
+In `"force"` mode, only the specified backend is tried and errors are thrown immediately.
+
+---
+
+### Module 4: RNDriverTouchInjector
+
+**Purpose**: In-app touch synthesis using platform APIs.
+
+**Package**: `@0xbigboss/rn-driver-touch-injector`
+
+#### API
+
+```typescript
+interface TouchInjectorModule {
+  /** Tap at coordinates */
+  tap(x: number, y: number): Promise<NativeResult<void>>;
+
+  /** Press down at coordinates */
+  down(x: number, y: number): Promise<NativeResult<void>>;
+
+  /** Move while pressed */
+  move(x: number, y: number): Promise<NativeResult<void>>;
+
+  /** Release press */
+  up(): Promise<NativeResult<void>>;
+
+  /** Swipe between points */
+  swipe(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number
+  ): Promise<NativeResult<void>>;
+
+  /** Long press at coordinates */
+  longPress(x: number, y: number, durationMs: number): Promise<NativeResult<void>>;
+
+  /** Type text (requires focused input) */
+  typeText(text: string): Promise<NativeResult<void>>;
+}
+```
+
+#### Platform Implementation
+
+**iOS (Swift)** - Uses `UIApplication.sendEvent()` with synthesized `UITouch`/`UIEvent`:
+
+```swift
+// Synthesize touch via UIKit event dispatch
+func synthesizeTap(at point: CGPoint) {
+  guard let window = UIApplication.shared.windows.first,
+        let hitView = window.hitTest(point, with: nil) else { return }
+
+  // Create UITouch and UIEvent via KVC (same approach as KIF/EarlGrey)
+  let touch = createTouch(at: point, in: window, view: hitView, phase: .began)
+  let event = createTouchEvent(with: touch)
+
+  UIApplication.shared.sendEvent(event)
+
+  // ... dispatch .ended phase
+}
+```
+
+**Android (Kotlin)** - Uses `view.dispatchTouchEvent()` with `MotionEvent`:
+
+```kotlin
+// Synthesize touch via View event dispatch
+fun synthesizeTap(x: Float, y: Float) {
+  val view = findViewAt(activity.window.decorView, x, y) ?: return
+
+  val downTime = SystemClock.uptimeMillis()
+  val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+  view.dispatchTouchEvent(down)
+  down.recycle()
+
+  val up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0)
+  view.dispatchTouchEvent(up)
+  up.recycle()
+}
+```
+
+#### Capabilities vs Limitations
+
+| Capability | Native Module | OS-Level (XCTest/Instrumentation) |
+|------------|---------------|-----------------------------------|
+| Tap app UI | ✅ | ✅ |
+| Swipe/scroll | ✅ | ✅ |
+| Gesture recognizers | ✅ Works | ✅ Works |
+| System dialogs | ❌ | ✅ |
+| Keyboard input | ❌ Limited | ✅ Full |
+| Other apps | ❌ | ✅ |
+| Network testing | ✅ | ❌ Local only |
+
+---
+
+### XCTest Companion (iOS)
+
+**Purpose**: OS-level touch injection via XCUITest framework.
+
+**Package**: `@0xbigboss/rn-playwright-driver-xctest-companion`
+
+The XCTest companion runs as a separate XCTest bundle that:
+1. Launches a WebSocket server
+2. Receives touch commands from the driver
+3. Executes via `XCUICoordinate` which uses `IOHIDEvent` for kernel-level injection
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    XCTest Runner Process                         │
+│                                                                  │
+│   Entitlements:                                                  │
+│   - com.apple.springboard.debugapplications                      │
+│   - Access to IOKit (IOHIDEventSystemClient)                     │
+│                                                                  │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  WebSocket Server (:9999)                                 │  │
+│   │  ├─ Receives: { id, type: "tap", x, y }                  │  │
+│   │  └─ Executes: XCUICoordinate.tap()                       │  │
+│   └──────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  XCUIApplication                                          │  │
+│   │  ├─ coordinate(withNormalizedOffset:)                    │  │
+│   │  ├─ .tap()                                               │  │
+│   │  └─ .press(forDuration:thenDragTo:)                      │  │
+│   └──────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  IOHIDEventSystemClient                                   │  │
+│   │  (Kernel-level touch injection)                           │  │
+│   └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Protocol
+
+```typescript
+// WebSocket message format (JSON)
+// Request: { id, type, ...params }
+// Response: { id, ok: true, result? } or { id, ok: false, error: { message, code? } }
+
+type TouchRequest =
+  | { id: number; type: "hello"; protocolVersion: number; client: string }
+  | { id: number; type: "tap"; x: number; y: number }
+  | { id: number; type: "down"; x: number; y: number }
+  | { id: number; type: "move"; x: number; y: number }
+  | { id: number; type: "up" }
+  | { id: number; type: "swipe"; from: Point; to: Point; durationMs: number }
+  | { id: number; type: "longPress"; x: number; y: number; durationMs: number }
+  | { id: number; type: "typeText"; text: string };
+
+type TouchResponse =
+  | { id: number; ok: true; result?: unknown }
+  | { id: number; ok: false; error: { message: string; code?: string } };
+```
+
+#### Setup
+
+The XCTest companion is a reference implementation to integrate into your app's UI test target. See `packages/xctest-companion/README.md` for integration instructions.
+
+Once integrated into your test target, run your UI test scheme to start the companion server.
+
+---
+
+### Instrumentation Companion (Android)
+
+**Purpose**: OS-level touch injection via UiAutomation framework.
+
+**Package**: `@0xbigboss/rn-playwright-driver-instrumentation-companion`
+
+The Instrumentation companion runs as a test APK that:
+1. Launches an HTTP server
+2. Receives touch commands from the driver
+3. Executes via `UiAutomation.injectInputEvent()` for kernel-level injection
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Instrumentation Process                       │
+│                                                                  │
+│   Permissions:                                                   │
+│   - android.permission.INJECT_EVENTS (via Instrumentation)       │
+│   - Access to /dev/input/* (via UiAutomation)                   │
+│                                                                  │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  HTTP Server (:9999)                                      │  │
+│   │  ├─ POST /command { type: "tap", x, y }                  │  │
+│   │  └─ Executes: UiAutomation.injectInputEvent()            │  │
+│   └──────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  UiAutomation                                             │  │
+│   │  ├─ injectInputEvent(MotionEvent, sync: true)            │  │
+│   │  └─ executeShellCommand("input tap ...")                 │  │
+│   └──────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │  Linux Input Subsystem                                    │  │
+│   │  (Kernel-level touch injection)                           │  │
+│   └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Protocol
+
+```typescript
+// HTTP POST /command with JSON body
+// Request: { type, ...params }
+// Response: { ok: true } or { ok: false, error: { message, code? } }
+
+type TouchCommand =
+  | { type: "hello" }
+  | { type: "tap"; x: number; y: number }
+  | { type: "down"; x: number; y: number }
+  | { type: "move"; x: number; y: number }
+  | { type: "up" }
+  | { type: "swipe"; from: Point; to: Point; durationMs: number }
+  | { type: "longPress"; x: number; y: number; durationMs: number }
+  | { type: "typeText"; text: string };
+
+type TouchResponse =
+  | { ok: true }
+  | { ok: false; error: { message: string; code?: string } };
+```
+
+#### Setup
+
+```bash
+# Install and start Instrumentation companion
+# See packages/instrumentation-companion/README.md for build instructions
+adb shell am instrument -w \
+  com.your.test/com.rndriver.touchcompanion.RNDriverTouchCompanion
+```
+
+---
+
+### TouchBackend Interface
+
+All backends implement a common interface:
+
+```typescript
+interface TouchBackend {
+  /** Backend identifier for debugging */
+  readonly name: string;
+
+  /** Initialize the backend (verify connectivity, etc.) */
+  init(): Promise<void>;
+
+  /** Cleanup resources */
+  dispose(): Promise<void>;
+
+  /** Single tap at coordinates */
+  tap(x: number, y: number): Promise<void>;
+
+  /** Press down at coordinates */
+  down(x: number, y: number): Promise<void>;
+
+  /** Move while pressed */
+  move(x: number, y: number): Promise<void>;
+
+  /** Release press */
+  up(): Promise<void>;
+
+  /** Swipe from one point to another */
+  swipe(from: Point, to: Point, durationMs: number): Promise<void>;
+
+  /** Long press at coordinates */
+  longPress(x: number, y: number, durationMs: number): Promise<void>;
+
+  /** Type text */
+  typeText(text: string): Promise<void>;
+}
+```
+
+### Backend Implementations
+
+| Backend | Class | Connection |
+|---------|-------|------------|
+| XCTest | `XCTestTouchBackend` | WebSocket to companion |
+| Instrumentation | `InstrumentationTouchBackend` | HTTP to companion |
+| Native Module | `NativeModuleTouchBackend` | CDP evaluate to harness |
+| CLI | `CliTouchBackend` | Spawn idb/adb |
+| Harness | `HarnessTouchBackend` | CDP evaluate to harness |
+
+### Package Structure
+
+```
+packages/
+├── driver/
+│   └── src/
+│       └── touch/
+│           ├── backend.ts              # TouchBackend interface
+│           ├── harness-backend.ts      # JS harness implementation
+│           ├── native-module-backend.ts # RNDriverTouchInjector implementation
+│           ├── xctest-backend.ts       # XCTest companion client
+│           ├── instrumentation-backend.ts # Instrumentation companion client
+│           ├── cli-backend.ts          # idb/adb CLI wrapper
+│           └── index.ts                # Factory + exports
+│
+├── touch-injector/                     # @0xbigboss/rn-driver-touch-injector
+│   ├── ios/
+│   │   └── RNDriverTouchInjectorModule.swift
+│   ├── android/
+│   │   └── .../RNDriverTouchInjectorModule.kt
+│   └── package.json
+│
+├── xctest-companion/                   # @0xbigboss/rn-playwright-driver-xctest-companion
+│   ├── ios/RNDriverTouchCompanion.swift
+│   └── README.md
+│
+└── instrumentation-companion/          # @0xbigboss/rn-playwright-driver-instrumentation-companion
+    ├── android/.../RNDriverTouchCompanion.kt
+    └── README.md
+```
