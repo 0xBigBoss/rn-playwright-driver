@@ -3,6 +3,8 @@ import type { TargetSelectionOptions } from "./cdp/discovery";
 export type DeviceOptions = {
   /** Metro bundler URL (default: 'http://localhost:8081') */
   metroUrl?: string;
+  /** Touch backend selection and config */
+  touch?: TouchBackendConfig;
 } & TargetSelectionOptions;
 
 // --- Wait states for Locator.waitFor ---
@@ -28,6 +30,8 @@ export interface Capabilities {
   screenshot: boolean;
   /** Native lifecycle module available */
   lifecycle: boolean;
+  /** Native touch injector module available */
+  touchNative: boolean;
   /** JS pointer/touch harness available */
   pointer: boolean;
 }
@@ -48,11 +52,150 @@ export type ElementBounds = {
   height: number;
 };
 
+export type Point = {
+  /** X position in logical points (not pixels) */
+  x: number;
+  /** Y position in logical points */
+  y: number;
+};
+
 export type PointerOptions = {
   /** Number of interpolation steps for drag (default: 10) */
   steps?: number;
   /** Delay between steps in ms (default: 0) */
   delay?: number;
+};
+
+/** Options for swipe gesture */
+export type SwipeOptions = {
+  /** Starting point */
+  from: Point;
+  /** Ending point */
+  to: Point;
+  /** Duration in milliseconds (default: 300) */
+  duration?: number;
+};
+
+export type TouchBackendType = "xctest" | "instrumentation" | "native-module" | "cli" | "harness";
+
+// --- Window Metrics ---
+
+/**
+ * Window metrics for layout assertions and coordinate calculations.
+ * All dimensions are in logical points (not physical pixels).
+ */
+export type WindowMetrics = {
+  /** Screen width in logical points */
+  width: number;
+  /** Screen height in logical points */
+  height: number;
+  /** Device pixel ratio */
+  pixelRatio: number;
+  /** Alias for pixelRatio (matches RN PixelRatio.get()) */
+  scale: number;
+  /** Font scale factor (for accessibility) */
+  fontScale: number;
+  /** Current screen orientation */
+  orientation: "portrait" | "landscape";
+  /** Safe area insets (if available via react-native-safe-area-context or similar) */
+  safeAreaInsets?: { top: number; right: number; bottom: number; left: number };
+};
+
+// --- Touch Backend Info ---
+
+/**
+ * Information about the selected touch backend.
+ */
+export type TouchBackendInfo = {
+  /** Currently selected backend */
+  selected: TouchBackendType;
+  /** All available backends */
+  available: TouchBackendType[];
+  /** Reason for backend selection (for diagnostics) */
+  reason?: string;
+};
+
+// --- Tracing ---
+
+/**
+ * Driver event types for tracing.
+ */
+export type DriverEventType =
+  | "pointer:down"
+  | "pointer:move"
+  | "pointer:up"
+  | "pointer:tap"
+  | "locator:find"
+  | "locator:tap"
+  | "evaluate"
+  | "console"
+  | "error";
+
+/**
+ * A traced event from the driver.
+ */
+export type DriverEvent = {
+  /** Event type */
+  type: DriverEventType;
+  /** Timestamp when event occurred */
+  timestamp: number;
+} & ({ /** Event-specific data */ data: Record<string, unknown> } | { data?: undefined });
+
+/**
+ * Tracing options.
+ */
+export type TracingOptions = {
+  /** Include console logs in trace (default: false) */
+  includeConsole?: boolean;
+};
+
+// --- Pointer Path Options ---
+
+/**
+ * Options for pointer path operations (dragPath, movePath).
+ */
+export type PointerPathOptions = {
+  /** Delay between each point in ms (default: 0) */
+  delay?: number;
+};
+
+export type TouchBackendMode = "auto" | "force";
+
+export type TouchBackendConfig = {
+  /** Selection mode (default: "auto") */
+  mode?: TouchBackendMode;
+  /** Force a specific backend when mode === "force" */
+  backend?: TouchBackendType;
+  /** Ordered backend preference when mode === "auto" */
+  order?: TouchBackendType[];
+  /** XCTest companion connection options */
+  xctest?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    connectTimeoutMs?: number;
+    requestTimeoutMs?: number;
+  };
+  /** Android Instrumentation companion connection options */
+  instrumentation?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    connectTimeoutMs?: number;
+    requestTimeoutMs?: number;
+  };
+  /** Enable native-module backend (requires RNDriverTouchInjector) */
+  nativeModule?: {
+    enabled?: boolean;
+  };
+  /** Enable CLI backend (idb/adb) */
+  cli?: {
+    enabled?: boolean;
+  };
+  /** Enable JS harness backend */
+  harness?: {
+    enabled?: boolean;
+  };
 };
 
 /**
@@ -66,7 +209,12 @@ export type PointerOptions = {
 export type Locator = {
   /** Tap the element center. REQUIRES: RNDriverViewTree + RNDriverTouch (Phase 3) */
   tap(): Promise<void>;
-  /** Type text into the element. REQUIRES: RNDriverViewTree + keyboard (Phase 3) */
+  /**
+   * Type text into the element.
+   * NOT YET IMPLEMENTED: Requires RNDriverKeyboard native module.
+   * Use device.evaluate() with setNativeProps as workaround.
+   * @throws LocatorError with code "NOT_SUPPORTED"
+   */
   type(text: string): Promise<void>;
   /**
    * Wait for element to reach a specific state.
@@ -83,6 +231,27 @@ export type Locator = {
   bounds(): Promise<ElementBounds | null>;
   /** Capture screenshot of element. REQUIRES: RNDriverScreenshot (Phase 3) */
   screenshot(): Promise<Buffer>;
+  /**
+   * Scroll the element into view.
+   * NOT YET IMPLEMENTED: Requires native scroll integration.
+   * Use device.evaluate() with scrollTo on ScrollView refs as workaround.
+   * @throws LocatorError with code "NOT_SUPPORTED"
+   */
+  scrollIntoView(): Promise<void>;
+
+  // --- Chaining methods ---
+  /** Find element by testID within this element's subtree */
+  getByTestId(testId: string): Locator;
+  /** Find element containing text within this element's subtree */
+  getByText(text: string, options?: { exact?: boolean }): Locator;
+  /** Find element by accessibility role within this element's subtree */
+  getByRole(role: string, options?: { name?: string }): Locator;
+  /** Return the nth matching element (0-indexed) */
+  nth(index: number): Locator;
+  /** Return the first matching element */
+  first(): Locator;
+  /** Return the last matching element */
+  last(): Locator;
 };
 
 /**
@@ -121,7 +290,7 @@ export interface Device {
    */
   getByRole(role: string, options?: { name?: string }): Locator;
 
-  // --- Pointer/Touch (Phase 2 - via JS harness) ---
+  // --- Pointer/Touch (Phase 2 - via touch backend) ---
   /**
    * Pointer coordinates are in LOGICAL POINTS, same as RN's coordinate system.
    */
@@ -140,6 +309,18 @@ export interface Device {
       to: { x: number; y: number },
       options?: PointerOptions,
     ): Promise<void>;
+    /** Swipe from one point to another with duration-based animation */
+    swipe(options: SwipeOptions): Promise<void>;
+    /**
+     * Execute a drag gesture along a path of points.
+     * Performs down at first point, moves through all points, up at last point.
+     */
+    dragPath(points: { x: number; y: number }[], options?: PointerPathOptions): Promise<void>;
+    /**
+     * Move through a path of points without down/up.
+     * Useful for hover effects or tracking gestures.
+     */
+    movePath(points: { x: number; y: number }[], options?: PointerPathOptions): Promise<void>;
   };
 
   // --- Screenshots (Phase 3 - require native module) ---
@@ -171,6 +352,49 @@ export interface Device {
     expression: string,
     options?: { timeout?: number; polling?: number },
   ): Promise<T>;
+
+  // --- Core Primitives ---
+
+  /**
+   * Get current window metrics (dimensions, pixel ratio, orientation).
+   * All values are in logical points.
+   */
+  getWindowMetrics(): Promise<WindowMetrics>;
+
+  /**
+   * Get current RAF frame count from the harness.
+   * Monotonically increasing counter incremented each requestAnimationFrame.
+   */
+  getFrameCount(): Promise<number>;
+
+  /**
+   * Wait for N animation frames to elapse.
+   * @param count Number of frames to wait (default: 1)
+   */
+  waitForRaf(count?: number): Promise<void>;
+
+  /**
+   * Wait until the frame count reaches or exceeds the target value.
+   * @param target Target frame count to wait for
+   */
+  waitForFrameCount(target: number): Promise<void>;
+
+  /**
+   * Get information about the currently selected touch backend.
+   */
+  getTouchBackendInfo(): Promise<TouchBackendInfo>;
+
+  /**
+   * Start tracing driver events.
+   * Events are stored in a bounded ring buffer on the device.
+   */
+  startTracing(options?: TracingOptions): Promise<void>;
+
+  /**
+   * Stop tracing and return collected events.
+   * Clears the trace buffer.
+   */
+  stopTracing(): Promise<{ events: DriverEvent[] }>;
 
   // --- Platform Info ---
   readonly platform: "ios" | "android";

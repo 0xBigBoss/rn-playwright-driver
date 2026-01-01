@@ -23,6 +23,59 @@ export type TouchEvent = {
 };
 
 /**
+ * Window metrics for layout assertions and coordinate calculations.
+ * All dimensions are in logical points (not physical pixels).
+ */
+export type WindowMetrics = {
+  /** Screen width in logical points */
+  width: number;
+  /** Screen height in logical points */
+  height: number;
+  /** Device pixel ratio */
+  pixelRatio: number;
+  /** Alias for pixelRatio (matches RN PixelRatio.get()) */
+  scale: number;
+  /** Font scale factor (for accessibility) */
+  fontScale: number;
+  /** Current screen orientation */
+  orientation: "portrait" | "landscape";
+  /** Safe area insets (if available via react-native-safe-area-context or similar) */
+  safeAreaInsets?: { top: number; right: number; bottom: number; left: number };
+};
+
+/**
+ * Driver event types for tracing.
+ */
+export type DriverEventType =
+  | "pointer:down"
+  | "pointer:move"
+  | "pointer:up"
+  | "pointer:tap"
+  | "locator:find"
+  | "locator:tap"
+  | "evaluate"
+  | "console"
+  | "error";
+
+/**
+ * A traced event from the driver.
+ */
+export type DriverEvent = {
+  /** Event type */
+  type: DriverEventType;
+  /** Timestamp when event occurred */
+  timestamp: number;
+} & ({ /** Event-specific data */ data: Record<string, unknown> } | { data?: undefined });
+
+/**
+ * Tracing options.
+ */
+export type TracingOptions = {
+  /** Include console logs in trace (default: false) */
+  includeConsole?: boolean;
+};
+
+/**
  * Touch handler function type.
  */
 export type TouchHandler = (event: TouchEvent) => void;
@@ -62,7 +115,8 @@ export type ErrorCode =
   | "TIMEOUT"
   | "INTERNAL"
   | "NOT_SUPPORTED"
-  | "INVALID_URL";
+  | "INVALID_URL"
+  | "TAP_FAILED";
 
 /**
  * Standard result wrapper for native module calls.
@@ -83,6 +137,7 @@ export type Capabilities = {
   viewTree: boolean;
   screenshot: boolean;
   lifecycle: boolean;
+  touchNative: boolean;
   pointer: boolean;
 };
 
@@ -100,6 +155,7 @@ export type ViewTreeBridge = {
   isVisible: (handle: string) => Promise<NativeResult<boolean>>;
   isEnabled: (handle: string) => Promise<NativeResult<boolean>>;
   refresh: (handle: string) => Promise<NativeResult<ElementInfo | null>>;
+  tap: (handle: string) => Promise<NativeResult<boolean>>;
 };
 
 /**
@@ -120,6 +176,25 @@ export type LifecycleBridge = {
   background: () => Promise<NativeResult<void>>;
   foreground: () => Promise<NativeResult<void>>;
   getState: () => Promise<NativeResult<AppState>>;
+};
+
+/**
+ * Native touch injection bridge interface.
+ */
+export type TouchNativeBridge = {
+  tap: (x: number, y: number) => Promise<NativeResult<void>>;
+  down: (x: number, y: number) => Promise<NativeResult<void>>;
+  move: (x: number, y: number) => Promise<NativeResult<void>>;
+  up: () => Promise<NativeResult<void>>;
+  swipe: (
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    durationMs: number,
+  ) => Promise<NativeResult<void>>;
+  longPress: (x: number, y: number, durationMs: number) => Promise<NativeResult<void>>;
+  typeText: (text: string) => Promise<NativeResult<void>>;
 };
 
 /**
@@ -160,11 +235,52 @@ export type RNDriverGlobal = {
   /** Feature detection */
   capabilities: Capabilities;
 
+  /** Native touch injection bridge (Phase 2.5) */
+  touchNative: TouchNativeBridge;
+
+  // --- Core Primitives ---
+
+  /**
+   * Get current window metrics (dimensions, pixel ratio, orientation).
+   * All values are in logical points.
+   */
+  getWindowMetrics: () => WindowMetrics;
+
+  /**
+   * Get current RAF frame count.
+   * Monotonically increasing counter incremented each requestAnimationFrame.
+   */
+  getFrameCount: () => number;
+
+  /**
+   * Start tracing driver events.
+   * Events are stored in a bounded ring buffer.
+   */
+  startTracing: (options?: TracingOptions) => void;
+
+  /**
+   * Stop tracing and return collected events.
+   * Clears the trace buffer.
+   */
+  stopTracing: () => { events: DriverEvent[] };
+
+  /**
+   * Check if tracing is currently active.
+   */
+  isTracing: () => boolean;
+
   /** Internal state (for debugging) */
   _internal: {
     handlers: Map<string, TouchHandler>;
     lastPosition: { x: number; y: number } | null;
     isDown: boolean;
+    frameCount: number;
+    tracing: {
+      active: boolean;
+      events: DriverEvent[];
+      includeConsole: boolean;
+      maxEvents: number;
+    };
   };
 };
 
@@ -195,12 +311,28 @@ function tryRequireNativeModule<T>(moduleName: string): T | null {
 }
 
 /**
+ * Module installation instructions for error messages.
+ */
+const MODULE_INSTALL_INSTRUCTIONS: Record<string, string> = {
+  RNDriverViewTree:
+    "RNDriverViewTree module not installed. Install @0xbigboss/rn-driver-view-tree and rebuild your app.",
+  RNDriverScreenshot:
+    "RNDriverScreenshot module not installed. Install @0xbigboss/rn-driver-screenshot and rebuild your app.",
+  RNDriverLifecycle:
+    "RNDriverLifecycle module not installed. Install @0xbigboss/rn-driver-lifecycle and rebuild your app.",
+  RNDriverTouchInjector:
+    "RNDriverTouchInjector module not installed. Install @0xbigboss/rn-driver-touch-injector and rebuild your app.",
+};
+
+/**
  * Create error result for unavailable modules.
  */
 function notSupportedResult<T>(feature: string): NativeResult<T> {
+  const errorMessage =
+    MODULE_INSTALL_INSTRUCTIONS[feature] ?? `${feature} native module not installed.`;
   return {
     success: false,
-    error: `${feature} native module not installed`,
+    error: errorMessage,
     code: "NOT_SUPPORTED",
   };
 }
@@ -217,6 +349,50 @@ function installHarness(): void {
   const handlers = new Map<string, TouchHandler>();
   let lastPosition: { x: number; y: number } | null = null;
   let isDown = false;
+
+  // RAF frame counter - monotonically increasing
+  let frameCount = 0;
+  let rafId: number | null = null;
+
+  // Start the RAF counter loop
+  function startRafCounter(): void {
+    if (rafId !== null) return;
+
+    const tick = (): void => {
+      frameCount++;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+  }
+
+  // Start RAF counter immediately
+  startRafCounter();
+
+  // Tracing state
+  const MAX_TRACE_EVENTS = 1000;
+  const tracingState = {
+    active: false,
+    events: [] as DriverEvent[],
+    includeConsole: false,
+    maxEvents: MAX_TRACE_EVENTS,
+  };
+
+  /**
+   * Add an event to the trace buffer (if tracing is active).
+   */
+  function traceEvent(type: DriverEventType, data?: Record<string, unknown>): void {
+    if (!tracingState.active) return;
+
+    const event: DriverEvent =
+      data !== undefined ? { type, timestamp: Date.now(), data } : { type, timestamp: Date.now() };
+
+    tracingState.events.push(event);
+
+    // Ring buffer: remove oldest events if over limit
+    while (tracingState.events.length > tracingState.maxEvents) {
+      tracingState.events.shift();
+    }
+  }
 
   /**
    * Dispatch a touch event to all registered handlers.
@@ -243,6 +419,7 @@ function installHarness(): void {
     isVisible: (handle: string) => Promise<NativeResult<boolean>>;
     isEnabled: (handle: string) => Promise<NativeResult<boolean>>;
     refresh: (handle: string) => Promise<NativeResult<ElementInfo | null>>;
+    tap: (handle: string) => Promise<NativeResult<boolean>>;
   };
 
   type ScreenshotNative = {
@@ -263,10 +440,26 @@ function installHarness(): void {
     foreground: () => Promise<NativeResult<void>>;
     getState: () => Promise<NativeResult<AppState>>;
   };
+  type TouchNativeModule = {
+    tap: (x: number, y: number) => Promise<NativeResult<void>>;
+    down: (x: number, y: number) => Promise<NativeResult<void>>;
+    move: (x: number, y: number) => Promise<NativeResult<void>>;
+    up: () => Promise<NativeResult<void>>;
+    swipe: (
+      fromX: number,
+      fromY: number,
+      toX: number,
+      toY: number,
+      durationMs: number,
+    ) => Promise<NativeResult<void>>;
+    longPress: (x: number, y: number, durationMs: number) => Promise<NativeResult<void>>;
+    typeText: (text: string) => Promise<NativeResult<void>>;
+  };
 
   const viewTreeNative = tryRequireNativeModule<ViewTreeNative>("RNDriverViewTree");
   const screenshotNative = tryRequireNativeModule<ScreenshotNative>("RNDriverScreenshot");
   const lifecycleNative = tryRequireNativeModule<LifecycleNative>("RNDriverLifecycle");
+  const touchNativeModule = tryRequireNativeModule<TouchNativeModule>("RNDriverTouchInjector");
 
   // Create bridges with fallback error handling
   const viewTree: ViewTreeBridge = viewTreeNative
@@ -281,6 +474,7 @@ function installHarness(): void {
         isVisible: (handle) => viewTreeNative.isVisible(handle),
         isEnabled: (handle) => viewTreeNative.isEnabled(handle),
         refresh: (handle) => viewTreeNative.refresh(handle),
+        tap: (handle) => viewTreeNative.tap(handle),
       }
     : {
         findByTestId: async () => notSupportedResult("RNDriverViewTree"),
@@ -293,6 +487,7 @@ function installHarness(): void {
         isVisible: async () => notSupportedResult("RNDriverViewTree"),
         isEnabled: async () => notSupportedResult("RNDriverViewTree"),
         refresh: async () => notSupportedResult("RNDriverViewTree"),
+        tap: async () => notSupportedResult("RNDriverViewTree"),
       };
 
   // captureElement uses native captureElement when available (shared handle registry),
@@ -365,10 +560,32 @@ function installHarness(): void {
         getState: async () => notSupportedResult("RNDriverLifecycle"),
       };
 
+  const touchNative: TouchNativeBridge = touchNativeModule
+    ? {
+        tap: (x, y) => touchNativeModule.tap(x, y),
+        down: (x, y) => touchNativeModule.down(x, y),
+        move: (x, y) => touchNativeModule.move(x, y),
+        up: () => touchNativeModule.up(),
+        swipe: (fromX, fromY, toX, toY, durationMs) =>
+          touchNativeModule.swipe(fromX, fromY, toX, toY, durationMs),
+        longPress: (x, y, durationMs) => touchNativeModule.longPress(x, y, durationMs),
+        typeText: (text) => touchNativeModule.typeText(text),
+      }
+    : {
+        tap: async () => notSupportedResult("RNDriverTouchInjector"),
+        down: async () => notSupportedResult("RNDriverTouchInjector"),
+        move: async () => notSupportedResult("RNDriverTouchInjector"),
+        up: async () => notSupportedResult("RNDriverTouchInjector"),
+        swipe: async () => notSupportedResult("RNDriverTouchInjector"),
+        longPress: async () => notSupportedResult("RNDriverTouchInjector"),
+        typeText: async () => notSupportedResult("RNDriverTouchInjector"),
+      };
+
   const capabilities: Capabilities = {
     viewTree: viewTreeNative !== null,
     screenshot: screenshotNative !== null,
     lifecycle: lifecycleNative !== null,
+    touchNative: touchNativeModule !== null,
     pointer: true, // JS pointer harness is always available
   };
 
@@ -377,11 +594,13 @@ function installHarness(): void {
 
     pointer: {
       tap(x: number, y: number): void {
+        traceEvent("pointer:tap", { x, y });
         harness.pointer.down(x, y);
         harness.pointer.up();
       },
 
       down(x: number, y: number): void {
+        traceEvent("pointer:down", { x, y });
         lastPosition = { x, y };
         isDown = true;
 
@@ -394,6 +613,7 @@ function installHarness(): void {
       },
 
       move(x: number, y: number): void {
+        traceEvent("pointer:move", { x, y });
         lastPosition = { x, y };
 
         dispatchTouch({
@@ -406,6 +626,7 @@ function installHarness(): void {
 
       up(): void {
         const position = lastPosition ?? { x: 0, y: 0 };
+        traceEvent("pointer:up", { x: position.x, y: position.y });
         isDown = false;
 
         dispatchTouch({
@@ -428,7 +649,89 @@ function installHarness(): void {
     viewTree,
     screenshot,
     lifecycle,
+    touchNative,
     capabilities,
+
+    // --- Core Primitives ---
+
+    getWindowMetrics(): WindowMetrics {
+      // Dynamically import Dimensions and PixelRatio to avoid RN-specific issues
+      // at module load time in non-RN environments
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Dimensions, PixelRatio } = require("react-native");
+        const { width, height } = Dimensions.get("window");
+        const pixelRatio = PixelRatio.get();
+        const fontScale = PixelRatio.getFontScale();
+        const orientation = width > height ? "landscape" : "portrait";
+
+        // Try to get safe area insets if available
+        let safeAreaInsets: WindowMetrics["safeAreaInsets"];
+        try {
+          // Check for react-native-safe-area-context
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const safeArea = require("react-native-safe-area-context");
+          if (safeArea.initialWindowMetrics?.insets) {
+            safeAreaInsets = safeArea.initialWindowMetrics.insets;
+          }
+        } catch {
+          // Safe area context not installed, leave undefined
+        }
+
+        const result: WindowMetrics = {
+          width,
+          height,
+          pixelRatio,
+          scale: pixelRatio,
+          fontScale,
+          orientation,
+        };
+        if (safeAreaInsets !== undefined) {
+          result.safeAreaInsets = safeAreaInsets;
+        }
+        return result;
+      } catch {
+        // Fallback for non-RN environments (testing, etc.)
+        return {
+          width: 0,
+          height: 0,
+          pixelRatio: 1,
+          scale: 1,
+          fontScale: 1,
+          orientation: "portrait",
+        };
+      }
+    },
+
+    getFrameCount(): number {
+      return frameCount;
+    },
+
+    startTracing(options?: TracingOptions): void {
+      tracingState.active = true;
+      tracingState.events = [];
+      tracingState.includeConsole = options?.includeConsole ?? false;
+
+      // If console tracing is enabled, patch console methods
+      if (tracingState.includeConsole) {
+        patchConsoleForTracing();
+      }
+    },
+
+    stopTracing(): { events: DriverEvent[] } {
+      const events = [...tracingState.events];
+      tracingState.active = false;
+      tracingState.events = [];
+
+      // Restore console if it was patched
+      restoreConsole();
+
+      return { events };
+    },
+
+    isTracing(): boolean {
+      return tracingState.active;
+    },
 
     _internal: {
       handlers,
@@ -438,8 +741,53 @@ function installHarness(): void {
       get isDown() {
         return isDown;
       },
+      get frameCount() {
+        return frameCount;
+      },
+      tracing: tracingState,
     },
   };
+
+  // Console patching for tracing
+  type ConsoleMethodName = "log" | "warn" | "error" | "info";
+  type ConsoleSnapshot = Record<ConsoleMethodName, typeof console.log>;
+  let originalConsole: ConsoleSnapshot | null = null;
+
+  function patchConsoleForTracing(): void {
+    if (originalConsole) return;
+
+    originalConsole = {
+      log: console.log.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console),
+      info: console.info.bind(console),
+    };
+
+    const createPatchedMethod =
+      (method: ConsoleMethodName) =>
+      (...args: unknown[]): void => {
+        originalConsole?.[method](...args);
+        traceEvent("console", {
+          level: method,
+          message: args.map((a) => String(a)).join(" "),
+        });
+      };
+
+    console.log = createPatchedMethod("log");
+    console.warn = createPatchedMethod("warn");
+    console.error = createPatchedMethod("error");
+    console.info = createPatchedMethod("info");
+  }
+
+  function restoreConsole(): void {
+    if (!originalConsole) return;
+
+    console.log = originalConsole.log;
+    console.warn = originalConsole.warn;
+    console.error = originalConsole.error;
+    console.info = originalConsole.info;
+    originalConsole = null;
+  }
 
   global.__RN_DRIVER__ = harness;
 
@@ -450,8 +798,9 @@ function installHarness(): void {
   }
 }
 
-// Declare __DEV__ for RN environment
+// Declare __DEV__ and requestAnimationFrame for RN environment
 declare const __DEV__: boolean | undefined;
+declare function requestAnimationFrame(callback: (timestamp: number) => void): number;
 
 // Install immediately on import
 installHarness();

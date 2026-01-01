@@ -95,6 +95,27 @@ export const test = base.extend<RNTestFixtures, RNWorkerFixtures>({
  * Re-export expect from Playwright for convenience.
  */
 export { expect } from "@playwright/test";
+export type {
+  AssertionOptions,
+  LocatorAssertions,
+  SnapshotOptions,
+  TextAssertionOptions,
+} from "./expect";
+/**
+ * Locator-specific assertions with auto-retry.
+ * Use this for RN locator assertions instead of Playwright's expect.
+ *
+ * @example
+ * ```ts
+ * import { test, expectLocator } from '@0xbigboss/rn-playwright-driver/test';
+ *
+ * test('button is visible', async ({ device }) => {
+ *   const button = device.getByTestId('submit-button');
+ *   await expectLocator(button).toBeVisible();
+ * });
+ * ```
+ */
+export { AssertionError, expect as expectLocator } from "./expect";
 
 /**
  * Type for the test function with RN fixtures.

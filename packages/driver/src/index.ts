@@ -8,20 +8,53 @@ export { discoverTargets, selectTarget } from "./cdp/discovery";
 export type { RNDeviceOptions } from "./device";
 // --- Device ---
 export { createDevice, RNDevice, TimeoutError } from "./device";
+// --- Assertions ---
+export type {
+  AssertionOptions,
+  LocatorAssertions,
+  SnapshotOptions,
+  TextAssertionOptions,
+} from "./expect";
+export { AssertionError, expect } from "./expect";
 export type { Locator as LocatorType, LocatorSelector } from "./locator";
 // --- Locator ---
 export { createLocator, LocatorError, LocatorImpl } from "./locator";
 // --- Pointer ---
-export { HarnessNotInstalledError, Pointer } from "./pointer";
+export { Pointer } from "./pointer";
+export type { TouchBackend, TouchBackendContext, TouchBackendSelection } from "./touch";
+export {
+  CliTouchBackend,
+  createTouchBackend,
+  HarnessNotInstalledError,
+  HarnessTouchBackend,
+  InstrumentationTouchBackend,
+  NativeModuleTouchBackend,
+  TouchBackendCommandError,
+  TouchBackendError,
+  TouchBackendNotInitializedError,
+  TouchBackendUnavailableError,
+  XCTestTouchBackend,
+} from "./touch";
 // --- Types ---
 export type {
   Capabilities,
   Device,
   DeviceOptions,
+  DriverEvent,
+  DriverEventType,
   ElementBounds,
   HarnessLoadMode,
   Locator,
+  Point,
   PointerOptions,
+  PointerPathOptions,
+  SwipeOptions,
+  TouchBackendConfig,
+  TouchBackendInfo,
+  TouchBackendMode,
+  TouchBackendType,
+  TracingOptions,
   WaitForOptions,
   WaitForState,
+  WindowMetrics,
 } from "./types";

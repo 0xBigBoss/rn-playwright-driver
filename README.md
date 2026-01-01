@@ -6,6 +6,7 @@ Playwright-compatible E2E test driver for React Native using Hermes CDP. It runs
 
 - **Device API**: `evaluate`, `waitForFunction`, `pointer`, `screenshot`, `openURL`, etc.
 - **Locators**: `getByTestId`, `getByText`, `getByRole` (requires view-tree module).
+- **Core Primitives**: `getWindowMetrics`, `waitForRaf`, `getFrameCount`, pointer paths, event tracing.
 - **JS Harness**: `global.__RN_DRIVER__` installed in the app to bridge driver calls.
 - **Native Modules (optional)**:
   - View tree queries

@@ -302,3 +302,109 @@ await device.foreground();
 // Reload JavaScript
 await device.reload();
 ```
+
+## Core Primitives
+
+### Window Metrics
+
+Get current window dimensions and display properties. All values are in logical points (not physical pixels):
+
+```typescript
+const metrics = await device.getWindowMetrics();
+console.log("Screen:", metrics.width, "x", metrics.height);
+console.log("Pixel ratio:", metrics.pixelRatio);
+console.log("Orientation:", metrics.orientation); // "portrait" | "landscape"
+console.log("Font scale:", metrics.fontScale);
+
+// Safe area insets (if react-native-safe-area-context installed)
+if (metrics.safeAreaInsets) {
+  console.log("Top inset:", metrics.safeAreaInsets.top);
+}
+```
+
+### Frame Timing
+
+Wait for animation frames to stabilize UI state before assertions:
+
+```typescript
+// Get current frame count
+const frame = await device.getFrameCount();
+
+// Wait for a single animation frame
+await device.waitForRaf();
+
+// Wait for multiple frames (useful for animations)
+await device.waitForRaf(3);
+
+// Wait until frame count reaches a target
+await device.waitForFrameCount(frame + 10);
+```
+
+### Pointer Paths
+
+Execute complex gestures along a path of points:
+
+```typescript
+// Drag along a curved path (e.g., bezier curve waypoints)
+await device.pointer.dragPath([
+  { x: 100, y: 400 },
+  { x: 150, y: 300 },
+  { x: 200, y: 350 },
+  { x: 250, y: 200 },
+], { delay: 10 });
+
+// Move without press (hover or track gesture)
+await device.pointer.movePath([
+  { x: 100, y: 100 },
+  { x: 200, y: 100 },
+  { x: 200, y: 200 },
+]);
+```
+
+### Touch Backend Info
+
+Get diagnostic information about the selected touch backend:
+
+```typescript
+const info = await device.getTouchBackendInfo();
+console.log("Selected backend:", info.selected);
+console.log("Available backends:", info.available);
+if (info.reason) {
+  console.log("Selection reason:", info.reason);
+}
+```
+
+### Event Tracing
+
+Trace driver events for debugging complex interactions:
+
+```typescript
+// Start tracing (with optional console log capture)
+await device.startTracing({ includeConsole: true });
+
+// Perform some actions
+await device.getByTestId("button").tap();
+await device.waitForRaf(2);
+
+// Stop and get traced events
+const { events } = await device.stopTracing();
+for (const event of events) {
+  console.log(`[${event.timestamp}] ${event.type}`, event.data);
+}
+```
+
+Event types: `pointer:down`, `pointer:move`, `pointer:up`, `pointer:tap`, `locator:find`, `locator:tap`, `evaluate`, `console`, `error`.
+
+## Coordinate System
+
+All coordinates throughout the driver are in **logical points** (not physical pixels):
+
+- Origin (0, 0) is the top-left corner of the screen
+- Values match React Native's coordinate system
+- To convert to pixels, multiply by `metrics.pixelRatio`
+
+```typescript
+const metrics = await device.getWindowMetrics();
+const logicalX = 100;
+const physicalX = logicalX * metrics.pixelRatio;
+```

@@ -3,7 +3,17 @@ import { discoverTargets, selectTarget } from "./cdp/discovery";
 import type { Locator, LocatorSelector } from "./locator";
 import { createLocator, LocatorError } from "./locator";
 import { Pointer } from "./pointer";
-import type { Capabilities, Device, DeviceOptions, ElementBounds } from "./types";
+import { createTouchBackend, type TouchBackend } from "./touch";
+import type {
+  Capabilities,
+  Device,
+  DeviceOptions,
+  DriverEvent,
+  ElementBounds,
+  TouchBackendInfo,
+  TracingOptions,
+  WindowMetrics,
+} from "./types";
 
 const DEFAULT_METRO_URL = "http://localhost:8081";
 const DEFAULT_WAIT_TIMEOUT = 30_000;
@@ -33,6 +43,8 @@ export class RNDevice implements Device {
   private readonly options: RNDeviceOptions;
   private readonly cdp: CDPClient;
   private readonly _pointer: Pointer;
+  private _touchBackend: TouchBackend | null = null;
+  private _touchBackendInfo: TouchBackendInfo | null = null;
   private _platform: "ios" | "android" = "ios";
 
   constructor(options: RNDeviceOptions = {}) {
@@ -43,7 +55,7 @@ export class RNDevice implements Device {
       ...options,
     };
     this.cdp = new CDPClient({ timeout });
-    this._pointer = new Pointer(this);
+    this._pointer = new Pointer(null, this);
   }
 
   // --- Connection ---
@@ -57,9 +69,32 @@ export class RNDevice implements Device {
 
     // Detect platform from target info or via JS
     this._platform = await this.detectPlatform(target);
+
+    const { backend, selection } = await createTouchBackend(
+      {
+        platform: this._platform,
+        evaluate: this.evaluate.bind(this),
+        waitForTimeout: this.waitForTimeout.bind(this),
+      },
+      this.options.touch,
+    );
+    this._touchBackend = backend;
+    const backendInfo: TouchBackendInfo = {
+      selected: selection.backend,
+      available: selection.available,
+    };
+    if (selection.reason !== undefined) {
+      backendInfo.reason = selection.reason;
+    }
+    this._touchBackendInfo = backendInfo;
+    this._pointer.setBackend(backend);
   }
 
   async disconnect(): Promise<void> {
+    if (this._touchBackend) {
+      await this._touchBackend.dispose();
+      this._touchBackend = null;
+    }
     await this.cdp.disconnect();
   }
 
@@ -178,7 +213,7 @@ export class RNDevice implements Device {
 
   async capabilities(): Promise<Capabilities> {
     return this.evaluate<Capabilities>(
-      "globalThis.__RN_DRIVER__?.capabilities ?? { viewTree: false, screenshot: false, lifecycle: false, pointer: true }",
+      "globalThis.__RN_DRIVER__?.capabilities ?? { viewTree: false, screenshot: false, lifecycle: false, touchNative: false, pointer: true }",
     );
   }
 
@@ -207,6 +242,54 @@ export class RNDevice implements Device {
     throw new TimeoutError(
       `waitForFunction timed out after ${timeout}ms: ${expression.slice(0, 100)}...`,
     );
+  }
+
+  // --- Core Primitives ---
+
+  async getWindowMetrics(): Promise<WindowMetrics> {
+    return this.evaluate<WindowMetrics>("globalThis.__RN_DRIVER__.getWindowMetrics()");
+  }
+
+  async getFrameCount(): Promise<number> {
+    return this.evaluate<number>("globalThis.__RN_DRIVER__.getFrameCount()");
+  }
+
+  async waitForRaf(count: number = 1): Promise<void> {
+    const startFrame = await this.getFrameCount();
+    const targetFrame = startFrame + count;
+    await this.waitForFrameCount(targetFrame);
+  }
+
+  async waitForFrameCount(target: number): Promise<void> {
+    const timeout = this.options.timeout ?? DEFAULT_WAIT_TIMEOUT;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      const current = await this.getFrameCount();
+      if (current >= target) {
+        return;
+      }
+      // Use a short polling interval since RAF fires at ~16ms (60fps)
+      await this.waitForTimeout(8);
+    }
+
+    throw new TimeoutError(`waitForFrameCount(${target}) timed out after ${timeout}ms`);
+  }
+
+  async getTouchBackendInfo(): Promise<TouchBackendInfo> {
+    if (!this._touchBackendInfo) {
+      throw new Error("Device not connected. Call connect() first.");
+    }
+    return this._touchBackendInfo;
+  }
+
+  async startTracing(options?: TracingOptions): Promise<void> {
+    const optionsJson = JSON.stringify(options ?? {});
+    await this.evaluate(`globalThis.__RN_DRIVER__.startTracing(${optionsJson})`);
+  }
+
+  async stopTracing(): Promise<{ events: DriverEvent[] }> {
+    return this.evaluate<{ events: DriverEvent[] }>("globalThis.__RN_DRIVER__.stopTracing()");
   }
 
   // --- Platform Info ---

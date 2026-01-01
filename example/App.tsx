@@ -20,6 +20,8 @@ export default function App() {
           style={styles.button}
           onPress={() => setCount((c) => c - 1)}
           testID="decrement-button"
+          accessibilityRole="button"
+          accessibilityLabel="Decrement"
         >
           <Text style={styles.buttonText}>-</Text>
         </Pressable>
@@ -28,6 +30,8 @@ export default function App() {
           style={styles.button}
           onPress={() => setCount((c) => c + 1)}
           testID="increment-button"
+          accessibilityRole="button"
+          accessibilityLabel="Increment"
         >
           <Text style={styles.buttonText}>+</Text>
         </Pressable>
@@ -37,6 +41,8 @@ export default function App() {
         style={[styles.button, styles.resetButton]}
         onPress={() => setCount(0)}
         testID="reset-button"
+        accessibilityRole="button"
+        accessibilityLabel="Reset"
       >
         <Text style={styles.buttonText}>Reset</Text>
       </Pressable>

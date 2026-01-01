@@ -117,16 +117,19 @@ export class CDPClient {
   async evaluate<T>(expression: string): Promise<T> {
     const resultId = `__CDP_RESULT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+    // Detect if expression is a single expression or multiple statements.
+    // Multi-statement code contains semicolons outside of strings/parens and needs
+    // to be wrapped differently. For robustness, we use eval() which handles both.
     const wrappedExpression = `
       (function() {
         try {
-          const value = (${expression});
+          var value = eval(${JSON.stringify(expression)});
           if (value && typeof value.then === 'function') {
-            const id = '${resultId}';
+            var id = '${resultId}';
             globalThis[id] = { pending: true };
             value.then(
               function(v) {
-                const hasValue = typeof v !== 'undefined';
+                var hasValue = typeof v !== 'undefined';
                 globalThis[id] = { done: true, hasValue: hasValue, value: v };
               },
               function(e) {
@@ -135,7 +138,7 @@ export class CDPClient {
             );
             return { async: true, id: id };
           }
-          const hasValue = typeof value !== 'undefined';
+          var hasValue = typeof value !== 'undefined';
           return { async: false, hasValue: hasValue, value: value };
         } catch (e) {
           return { async: false, error: e && e.message ? e.message : String(e) };

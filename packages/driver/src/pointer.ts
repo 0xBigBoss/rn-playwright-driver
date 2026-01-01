@@ -1,73 +1,64 @@
-import type { PointerOptions } from "./types";
+import type { TouchBackend } from "./touch";
+import { TouchBackendNotInitializedError } from "./touch";
+import type { PointerOptions, PointerPathOptions, SwipeOptions } from "./types";
 
 const DEFAULT_DRAG_STEPS = 10;
 const DEFAULT_DRAG_DELAY = 0;
-
-/**
- * Error thrown when the harness is not installed in the app.
- */
-export class HarnessNotInstalledError extends Error {
-  constructor() {
-    super(
-      "RN Driver harness not found. Add to your app entry:\n" +
-        "  import '@0xbigboss/rn-playwright-driver/harness';",
-    );
-    this.name = "HarnessNotInstalledError";
-  }
-}
+const DEFAULT_SWIPE_DURATION = 300;
 
 /**
  * Interface for device that supports evaluate().
  * Avoids circular dependency with Device type.
  */
-interface Evaluator {
-  evaluate<T>(expression: string): Promise<T>;
+interface TimeoutProvider {
   waitForTimeout(ms: number): Promise<void>;
 }
 
 /**
- * Pointer/touch simulation via JS harness.
+ * Pointer/touch simulation via TouchBackend.
  *
  * Coordinates are in LOGICAL POINTS (same as RN's coordinate system).
  * Origin (0, 0) is top-left of the screen.
  */
 export class Pointer {
-  private readonly device: Evaluator;
+  private backend: TouchBackend | null;
+  private readonly timeoutProvider: TimeoutProvider;
 
-  constructor(device: Evaluator) {
-    this.device = device;
+  constructor(backend: TouchBackend | null, timeoutProvider: TimeoutProvider) {
+    this.backend = backend;
+    this.timeoutProvider = timeoutProvider;
+  }
+
+  setBackend(backend: TouchBackend): void {
+    this.backend = backend;
   }
 
   /**
    * Tap at coordinates (down + up).
    */
   async tap(x: number, y: number): Promise<void> {
-    await this.ensureHarness();
-    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.tap(${x}, ${y})`);
+    await this.getBackend().tap(x, y);
   }
 
   /**
    * Press down at coordinates.
    */
   async down(x: number, y: number): Promise<void> {
-    await this.ensureHarness();
-    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.down(${x}, ${y})`);
+    await this.getBackend().down(x, y);
   }
 
   /**
    * Move to coordinates (while pressed).
    */
   async move(x: number, y: number): Promise<void> {
-    await this.ensureHarness();
-    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.move(${x}, ${y})`);
+    await this.getBackend().move(x, y);
   }
 
   /**
    * Release press.
    */
   async up(): Promise<void> {
-    await this.ensureHarness();
-    await this.device.evaluate<void>(`globalThis.__RN_DRIVER__.pointer.up()`);
+    await this.getBackend().up();
   }
 
   /**
@@ -78,41 +69,94 @@ export class Pointer {
     to: { x: number; y: number },
     options?: PointerOptions,
   ): Promise<void> {
-    await this.ensureHarness();
-
     const steps = options?.steps ?? DEFAULT_DRAG_STEPS;
     const delay = options?.delay ?? DEFAULT_DRAG_DELAY;
 
     // Press at start position
-    await this.down(from.x, from.y);
+    const backend = this.getBackend();
+    await backend.down(from.x, from.y);
 
     // Interpolate movement
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = from.x + (to.x - from.x) * t;
       const y = from.y + (to.y - from.y) * t;
-      await this.move(x, y);
+      await backend.move(x, y);
 
       if (delay > 0) {
-        await this.device.waitForTimeout(delay);
+        await this.timeoutProvider.waitForTimeout(delay);
       }
     }
 
     // Release at end position
-    await this.up();
+    await backend.up();
   }
 
   /**
-   * Check if the harness is installed in the app.
-   * Throws HarnessNotInstalledError if not.
+   * Swipe from one point to another with duration-based interpolation.
+   * Similar to drag but uses time-based animation for more realistic gesture.
    */
-  private async ensureHarness(): Promise<void> {
-    const hasHarness = await this.device.evaluate<boolean>(
-      `typeof globalThis.__RN_DRIVER__ !== 'undefined' && typeof globalThis.__RN_DRIVER__.pointer !== 'undefined'`,
-    );
+  async swipe(options: SwipeOptions): Promise<void> {
+    const duration = options.duration ?? DEFAULT_SWIPE_DURATION;
+    await this.getBackend().swipe(options.from, options.to, duration);
+  }
 
-    if (!hasHarness) {
-      throw new HarnessNotInstalledError();
+  /**
+   * Execute a drag gesture along a path of points.
+   * Performs down at first point, moves through all points, up at last point.
+   *
+   * Unlike drag() which interpolates between two points, this follows
+   * exact waypoints - useful for complex gestures like bezier curves.
+   */
+  async dragPath(points: { x: number; y: number }[], options?: PointerPathOptions): Promise<void> {
+    if (points.length === 0) {
+      return;
     }
+
+    const delay = options?.delay ?? 0;
+    const backend = this.getBackend();
+
+    // Press at first point
+    await backend.down(points[0].x, points[0].y);
+
+    // Move through remaining points
+    for (let i = 1; i < points.length; i++) {
+      await backend.move(points[i].x, points[i].y);
+      if (delay > 0) {
+        await this.timeoutProvider.waitForTimeout(delay);
+      }
+    }
+
+    // Release at last point
+    await backend.up();
+  }
+
+  /**
+   * Move through a path of points without down/up.
+   * Useful for hover effects or tracking gestures where the pointer
+   * is already down (or doesn't need to be).
+   */
+  async movePath(points: { x: number; y: number }[], options?: PointerPathOptions): Promise<void> {
+    if (points.length === 0) {
+      return;
+    }
+
+    const delay = options?.delay ?? 0;
+    const backend = this.getBackend();
+
+    // Move through all points
+    for (let i = 0; i < points.length; i++) {
+      await backend.move(points[i].x, points[i].y);
+      if (delay > 0 && i < points.length - 1) {
+        await this.timeoutProvider.waitForTimeout(delay);
+      }
+    }
+  }
+
+  private getBackend(): TouchBackend {
+    if (!this.backend) {
+      throw new TouchBackendNotInitializedError("harness");
+    }
+    return this.backend;
   }
 }

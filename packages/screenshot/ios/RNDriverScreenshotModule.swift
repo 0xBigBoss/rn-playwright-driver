@@ -1,8 +1,6 @@
 import ExpoModulesCore
+import RNDriverViewTree
 import UIKit
-
-// Import RNDriverHandleRegistry from view-tree module for cross-module handle resolution
-// The registry is defined in RNDriverViewTreeModule.swift
 
 public class RNDriverScreenshotModule: Module {
     public func definition() -> ModuleDefinition {

@@ -158,6 +158,29 @@ public class RNDriverViewTreeModule: Module {
                 return self.successResult(self.createElementInfo(for: view))
             }
         }
+
+        // Tap action - triggers a native tap on the element
+        // Tries multiple strategies:
+        // 1. UIControl.sendActions (for native iOS controls)
+        // 2. RCTSurfaceTouchHandler gesture recognizer (for RN Fabric views)
+        // 3. accessibilityActivate (for accessible elements with button trait)
+        AsyncFunction("tap") { (handle: String) -> [String: Any] in
+            return self.runOnMainThread {
+                guard let view = self.resolveHandle(handle) else {
+                    return self.errorResult("Element not found", code: "NOT_FOUND")
+                }
+
+                // Try to perform native tap using multiple strategies
+                let tapSucceeded = self.performTap(on: view)
+                if tapSucceeded {
+                    return self.successResult(true)
+                }
+
+                let viewType = String(describing: type(of: view))
+                let testId = view.accessibilityIdentifier ?? "unknown"
+                return self.errorResult("Could not trigger tap on view - viewType: \(viewType), testId: \(testId)", code: "TAP_FAILED")
+            }
+        }
     }
 
     // MARK: - Thread Safety
@@ -179,6 +202,234 @@ public class RNDriverViewTreeModule: Module {
         return result
     }
 
+    // MARK: - Touch Injection
+
+    /// Perform a tap on the given view using multiple strategies.
+    /// Returns true if the tap was successfully triggered.
+    private func performTap(on view: UIView) -> Bool {
+        // Strategy 1: UIControl.sendActions (native iOS buttons, switches, etc.)
+        if let control = view as? UIControl {
+            control.sendActions(for: .touchUpInside)
+            return true
+        }
+
+        // Check ancestors for UIControl
+        var current: UIView? = view.superview
+        while let ancestor = current {
+            if let control = ancestor as? UIControl {
+                control.sendActions(for: .touchUpInside)
+                return true
+            }
+            current = ancestor.superview
+        }
+
+        // Strategy 2: Send synthetic touch events via RCTSurfaceTouchHandler
+        // React Native Fabric uses this gesture recognizer for all touch handling
+        if self.sendSyntheticTouchEvent(on: view) {
+            return true
+        }
+
+        // Strategy 3: accessibilityActivate as last resort
+        // Walk up the view hierarchy to find the accessibility element
+        var accessibleView: UIView? = view
+        while let v = accessibleView {
+            if v.isAccessibilityElement && v.accessibilityTraits.contains(.button) {
+                if v.accessibilityActivate() {
+                    return true
+                }
+            }
+            accessibleView = v.superview
+        }
+
+        return false
+    }
+
+    /// Send a synthetic touch event through the RCTSurfaceTouchHandler gesture recognizer.
+    /// React Native Fabric uses RCTSurfaceTouchHandler (a UIGestureRecognizer) to handle all touches.
+    /// We need to trigger touches through the gesture recognizer, not the responder chain.
+    private func sendSyntheticTouchEvent(on view: UIView) -> Bool {
+        guard let window = view.window else {
+            return false
+        }
+
+        // Calculate center point in window coordinates (like VoiceOver does)
+        let centerInWindow = view.convert(
+            CGPoint(x: view.bounds.midX, y: view.bounds.midY),
+            to: window
+        )
+
+        // Find the RCTSurfaceTouchHandler gesture recognizer in the view hierarchy
+        // It's typically attached to the RCTSurfaceView or RCTRootView
+        var touchHandler: UIGestureRecognizer?
+        var currentView: UIView? = view
+        while let v = currentView {
+            if let recognizers = v.gestureRecognizers {
+                for recognizer in recognizers {
+                    let className = String(describing: type(of: recognizer))
+                    if className.contains("RCTSurfaceTouchHandler") || className.contains("RCTTouchHandler") {
+                        touchHandler = recognizer
+                        break
+                    }
+                }
+            }
+            if touchHandler != nil { break }
+            currentView = v.superview
+        }
+
+        // If we found a touch handler, simulate touches on it directly
+        if let handler = touchHandler {
+            // Get the hit-tested view at the touch point
+            guard let hitView = window.hitTest(centerInWindow, with: nil) else {
+                return false
+            }
+
+            // Create synthetic touch and event
+            let touch = SyntheticTouch(location: centerInWindow, window: window, view: hitView)
+
+            // Directly call touchesBegan/touchesEnded on the gesture recognizer
+            touch.updatePhase(.began)
+            if let beganEvent = SyntheticTouchEvent(touch: touch) {
+                handler.touchesBegan(Set([touch]), with: beganEvent)
+            }
+
+            // Small delay to simulate realistic tap
+            usleep(50000) // 50ms
+
+            touch.updatePhase(.ended)
+            if let endedEvent = SyntheticTouchEvent(touch: touch) {
+                handler.touchesEnded(Set([touch]), with: endedEvent)
+            }
+
+            return true
+        }
+
+        // Fallback: Try UIApplication.sendEvent (for non-Fabric views)
+        guard let hitView = window.hitTest(centerInWindow, with: nil) else {
+            return false
+        }
+
+        let touch = SyntheticTouch(location: centerInWindow, window: window, view: hitView)
+
+        touch.updatePhase(.began)
+        if let beganEvent = SyntheticTouchEvent(touch: touch) {
+            UIApplication.shared.sendEvent(beganEvent)
+        }
+
+        usleep(50000)
+
+        touch.updatePhase(.ended)
+        if let endedEvent = SyntheticTouchEvent(touch: touch) {
+            UIApplication.shared.sendEvent(endedEvent)
+        }
+
+        return true
+    }
+}
+
+// MARK: - Synthetic Touch and Event Classes
+
+/// Synthetic UITouch subclass for touch event injection.
+/// Overrides key properties to provide valid touch data.
+private class SyntheticTouch: UITouch {
+    private var _location: CGPoint
+    private var _previousLocation: CGPoint
+    private var _window: UIWindow
+    private var _view: UIView
+    private var _phase: UITouch.Phase = .began
+    private var _timestamp: TimeInterval
+    private var _tapCount: Int = 1
+
+    init(location: CGPoint, window: UIWindow, view: UIView) {
+        self._location = location
+        self._previousLocation = location
+        self._window = window
+        self._view = view
+        self._timestamp = ProcessInfo.processInfo.systemUptime
+        super.init()
+    }
+
+    func updatePhase(_ phase: UITouch.Phase) {
+        _previousLocation = _location
+        _phase = phase
+        _timestamp = ProcessInfo.processInfo.systemUptime
+    }
+
+    override var phase: UITouch.Phase { _phase }
+    override var timestamp: TimeInterval { _timestamp }
+    override var window: UIWindow? { _window }
+    override var view: UIView? { _view }
+    override var tapCount: Int { _tapCount }
+    override var type: UITouch.TouchType { .direct }
+    override var force: CGFloat { 1.0 }
+    override var maximumPossibleForce: CGFloat { 1.0 }
+    override var majorRadius: CGFloat { 25.0 }
+    override var majorRadiusTolerance: CGFloat { 5.0 }
+
+    override func location(in view: UIView?) -> CGPoint {
+        guard let targetView = view else {
+            return _location
+        }
+        if targetView === _window {
+            return _location
+        }
+        return _window.convert(_location, to: targetView)
+    }
+
+    override func previousLocation(in view: UIView?) -> CGPoint {
+        guard let targetView = view else {
+            return _previousLocation
+        }
+        if targetView === _window {
+            return _previousLocation
+        }
+        return _window.convert(_previousLocation, to: targetView)
+    }
+}
+
+/// Synthetic UIEvent subclass for touch event injection.
+/// Uses private API _initWithEvent:touches: to create a valid UITouchesEvent.
+private class SyntheticTouchEvent: UIEvent {
+    private var _touches: Set<UITouch>
+    private var _timestamp: TimeInterval
+
+    init?(touch: SyntheticTouch) {
+        self._touches = Set([touch])
+        self._timestamp = touch.timestamp
+
+        super.init()
+
+        // Try to initialize as a UITouchesEvent using private API
+        // This is required because UIEvent cannot be directly instantiated
+        // with touch data through public APIs
+        let selector = NSSelectorFromString("_setTimestamp:")
+        if self.responds(to: selector) {
+            self.perform(selector, with: _timestamp)
+        }
+    }
+
+    override var type: UIEvent.EventType { .touches }
+    override var subtype: UIEvent.EventSubtype { .none }
+    override var timestamp: TimeInterval { _timestamp }
+
+    override func touches(for window: UIWindow) -> Set<UITouch>? {
+        return _touches
+    }
+
+    override func touches(for view: UIView) -> Set<UITouch>? {
+        return _touches.filter { $0.view === view }
+    }
+
+    override func touches(for gestureRecognizer: UIGestureRecognizer) -> Set<UITouch>? {
+        return _touches
+    }
+
+    override var allTouches: Set<UITouch>? {
+        return _touches
+    }
+}
+
+// Extension to add remaining module methods
+extension RNDriverViewTreeModule {
     // MARK: - Handle Management (uses shared registry for cross-module access)
 
     private func getOrCreateHandle(for view: UIView) -> String {

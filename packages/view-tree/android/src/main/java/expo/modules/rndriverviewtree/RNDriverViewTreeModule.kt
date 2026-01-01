@@ -89,6 +89,57 @@ class RNDriverViewTreeModule : Module() {
                 }
             }
         }
+
+        // Tap action - triggers a native tap on the element
+        // Tries multiple strategies in order, checking return values:
+        // 1. performClick for clickable views (returns true if listener handled)
+        // 2. callOnClick for views with click listeners (returns true if listener called)
+        // 3. performAccessibilityAction for accessible views (returns true if handled)
+        // Returns TAP_FAILED if no strategy succeeds
+        AsyncFunction("tap") { handle: String ->
+            runOnUiThreadBlocking {
+                val view = resolveHandle(handle)
+                if (view == null) {
+                    errorResult("Element not found", "NOT_FOUND")
+                } else {
+                    // Strategy 1: performClick for clickable views
+                    // performClick() returns true if an OnClickListener handled the click
+                    if (view.isClickable || view.hasOnClickListeners()) {
+                        val handled = view.performClick()
+                        if (handled) {
+                            return@runOnUiThreadBlocking successResult(true)
+                        }
+                        // Fall through to try other strategies
+                    }
+
+                    // Strategy 2: callOnClick - returns true if listener was called
+                    val clickHandled = try {
+                        view.callOnClick()
+                    } catch (_: Exception) {
+                        false
+                    }
+
+                    if (clickHandled) {
+                        return@runOnUiThreadBlocking successResult(true)
+                    }
+
+                    // Strategy 3: Accessibility action
+                    val accessibilityResult = view.performAccessibilityAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK,
+                        null
+                    )
+
+                    if (accessibilityResult) {
+                        return@runOnUiThreadBlocking successResult(true)
+                    }
+
+                    // All strategies failed - return TAP_FAILED
+                    val viewType = view.javaClass.simpleName
+                    val testId = view.contentDescription?.toString() ?: "unknown"
+                    errorResult("Could not trigger tap on view - viewType: $viewType, testId: $testId", "TAP_FAILED")
+                }
+            }
+        }
     }
 
     // MARK: - Thread Safety
