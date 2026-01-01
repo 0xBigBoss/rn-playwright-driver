@@ -3,18 +3,18 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "example"
+    "examples/*"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
-    "lint": "bun run --filter '@0xbigboss/*' lint && bun run --filter 'example' lint",
-    "lint:fix": "bun run --filter '@0xbigboss/*' lint:fix && bun run --filter 'example' lint:fix",
-    "format": "bun run --filter '@0xbigboss/*' format && bun run --filter 'example' format",
+    "lint": "bun run --filter '@0xbigboss/*' lint && bun run --filter 'examples-*' lint",
+    "lint:fix": "bun run --filter '@0xbigboss/*' lint:fix && bun run --filter 'examples-*' lint:fix",
+    "format": "bun run --filter '@0xbigboss/*' format && bun run --filter 'examples-*' format",
     "test": "bun run --filter '@0xbigboss/*' test",
-    "typecheck": "bun run --filter '@0xbigboss/*' typecheck && bun run --filter 'example' typecheck",
-    "knip": "bun run --filter '@0xbigboss/rn-playwright-driver' knip && bun run --filter 'example' knip",
-    "cpd": "bun run --filter '@0xbigboss/rn-playwright-driver' cpd && bun run --filter 'example' cpd",
-    "check": "bun run --filter '@0xbigboss/*' check && bun run --filter 'example' check",
+    "typecheck": "bun run --filter '@0xbigboss/*' typecheck && bun run --filter 'examples-*' typecheck",
+    "knip": "bun run --filter '@0xbigboss/rn-playwright-driver' knip && bun run --filter 'examples-*' knip",
+    "cpd": "bun run --filter '@0xbigboss/rn-playwright-driver' cpd && bun run --filter 'examples-*' cpd",
+    "check": "bun run --filter '@0xbigboss/*' check && bun run --filter 'examples-*' check",
     "prepare": "lefthook install"
   },
   "devDependencies": {

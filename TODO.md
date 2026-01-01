@@ -1,33 +1,37 @@
-# TODO - Core Primitives Implementation
+# TODO - Examples Restructure and E2E Coverage
 
 ## Completed
-- [x] Add harness support for window metrics (getWindowMetrics) (iteration 1)
-- [x] Add harness support for RAF frame counter (iteration 1)
-- [x] Add harness trace buffer + event schema (iteration 1)
-- [x] Add types: WindowMetrics, TouchBackendInfo, DriverEvent, TracingOptions (iteration 1)
-- [x] Implement device APIs: getWindowMetrics, getFrameCount, waitForRaf, waitForFrameCount (iteration 1)
-- [x] Implement device.getTouchBackendInfo() (iteration 1)
-- [x] Implement device.startTracing/stopTracing (iteration 1)
-- [x] Implement pointer.dragPath and pointer.movePath (iteration 1)
-- [x] Standardize locator error messages for missing view-tree (iteration 1)
-- [x] Export new types from index.ts (iteration 1)
-- [x] Run bun run check and fix issues (iteration 1)
-- [x] Update README/ADVANCED.md with new API examples (iteration 1)
+- [x] Previous: Core primitives implementation (iteration 1-N)
+- [x] Move example/ to examples/basic-app/
+- [x] Update root package.json workspaces to "examples/*"
+- [x] Rename example package to examples-basic-app
+- [x] Reorganize E2E specs into categorical folders:
+  - assertions/ (matchers.spec.ts)
+  - core/ (capabilities.spec.ts)
+  - integration/ (counter.spec.ts)
+  - locators/ (chaining.spec.ts)
+  - pointer/ (basic.spec.ts, paths.spec.ts)
+  - primitives/ (window-metrics.spec.ts, frame-timing.spec.ts, tracing.spec.ts, touch-backend.spec.ts)
+- [x] Add primitives/window-metrics.spec.ts - getWindowMetrics() tests
+- [x] Add primitives/frame-timing.spec.ts - getFrameCount(), waitForRaf(), waitForFrameCount() tests
+- [x] Add primitives/tracing.spec.ts - startTracing(), stopTracing() tests
+- [x] Add primitives/touch-backend.spec.ts - getTouchBackendInfo() tests
+- [x] Add pointer/paths.spec.ts - dragPath(), movePath() tests
+- [x] Add core/capabilities.spec.ts - capabilities() tests
+- [x] Run bun run check - all checks passed
 
 ## In Progress
 (none)
 
 ## Pending
-(none)
+- [ ] Run E2E tests (requires Metro + simulator - not available in current environment)
 
 ## Blocked
-(none)
+- [ ] E2E test execution blocked: Metro bundler and iOS simulator not running
 
 ## Notes
-- All core primitives from docs/CORE-PRIMITIVES-PROPOSAL.md have been implemented
-- Harness now exposes: getWindowMetrics(), getFrameCount(), startTracing(), stopTracing(), isTracing()
-- Device now exposes: getWindowMetrics(), getFrameCount(), waitForRaf(), waitForFrameCount(), getTouchBackendInfo(), startTracing(), stopTracing()
-- Pointer now exposes: dragPath(), movePath()
-- TouchBackendSelection now includes selection info (backend type, available backends, reason)
-- Error messages for missing native modules now include installation instructions
-- Documentation updated in README.md and docs/ADVANCED.md
+- Workspace migrated from "example" to "examples/*"
+- All new spec files follow the same pattern as existing specs
+- Copy-paste detection shows acceptable duplication (~4-5%) which is expected for test files with similar structure
+- E2E tests require: `cd examples/basic-app && bun start` (Metro) and a booted iOS simulator
+- To run E2E tests manually: `cd examples/basic-app && bun run test:e2e`
