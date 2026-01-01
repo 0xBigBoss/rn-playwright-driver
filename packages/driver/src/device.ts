@@ -105,7 +105,19 @@ export class RNDevice implements Device {
   // --- JS Evaluation (Phase 1) ---
 
   async evaluate<T>(expression: string): Promise<T> {
-    return this.cdp.evaluate<T>(expression);
+    const result = await this.cdp.evaluate<T>(expression);
+    // Trace the evaluate call if tracing is active
+    // We do this after the call to avoid tracing internal startTracing/stopTracing calls
+    if (!expression.includes("startTracing") && !expression.includes("stopTracing")) {
+      try {
+        await this.cdp.evaluate(
+          `globalThis.__RN_DRIVER__?.traceEvent?.("evaluate", { expression: ${JSON.stringify(expression.slice(0, 200))} })`,
+        );
+      } catch {
+        // Ignore errors from tracing injection
+      }
+    }
+    return result;
   }
 
   // --- Locators (Phase 3) ---

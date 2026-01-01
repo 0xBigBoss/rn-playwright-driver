@@ -115,6 +115,26 @@ test("can evaluate JS", async ({ device }) => {
 test("can tap by testID", async ({ device }) => {
   await device.getByTestId("increment-button").tap();
 });
+
+test("wait for animation frame", async ({ device }) => {
+  await device.getByTestId("animate-button").tap();
+  await device.waitForRaf(3); // Wait 3 frames for animation
+  expect(await device.getByTestId("status").text()).toBe("done");
+});
+
+test("swipe with path", async ({ device }) => {
+  await device.pointer.dragPath([
+    { x: 100, y: 400 },
+    { x: 200, y: 300 },
+    { x: 300, y: 200 },
+  ]);
+});
+
+test("get window metrics", async ({ device }) => {
+  const metrics = await device.getWindowMetrics();
+  console.log("Screen size:", metrics.width, "x", metrics.height);
+  console.log("Pixel ratio:", metrics.pixelRatio);
+});
 ```
 
 ## Configuration

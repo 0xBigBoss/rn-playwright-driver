@@ -22,10 +22,10 @@ export type LookupMethod = "name" | "uuid" | "testId";
  * Options for R3F object lookup.
  */
 export type R3FLookupOptions = {
-  /** How to look up the object: 'name', 'uuid', or 'testId' (default) */
-  method?: LookupMethod;
-  /** Canvas ID for multi-canvas support */
-  canvasId?: string;
+	/** How to look up the object: 'name', 'uuid', or 'testId' (default) */
+	method?: LookupMethod;
+	/** Canvas ID for multi-canvas support */
+	canvasId?: string;
 };
 
 /**
@@ -38,37 +38,37 @@ export type R3FLookupOptions = {
  * @throws Error if object not found, off-screen, or outside frustum
  */
 export async function getR3FObjectPosition(
-  device: Device,
-  identifier: string,
-  options?: R3FLookupOptions,
+	device: Device,
+	identifier: string,
+	options?: R3FLookupOptions,
 ): Promise<R3FScreenPosition> {
-  const { method = "testId", canvasId } = options ?? {};
-  const bridge = canvasId
-    ? `globalThis.__RN_DRIVER_R3F_REGISTRY__['${canvasId}']`
-    : "globalThis.__RN_DRIVER_R3F__";
+	const { method = "testId", canvasId } = options ?? {};
+	const bridge = canvasId
+		? `globalThis.__RN_DRIVER_R3F_REGISTRY__?.[${JSON.stringify(canvasId)}]`
+		: "globalThis.__RN_DRIVER_R3F__";
 
-  const methodName =
-    method === "uuid"
-      ? "getObjectScreenPositionByUuid"
-      : method === "testId"
-        ? "getObjectScreenPositionByTestId"
-        : "getObjectScreenPosition";
+	const methodName =
+		method === "uuid"
+			? "getObjectScreenPositionByUuid"
+			: method === "testId"
+				? "getObjectScreenPositionByTestId"
+				: "getObjectScreenPosition";
 
-  const pos = await device.evaluate<R3FScreenPosition | null>(
-    `${bridge}?.${methodName}(${JSON.stringify(identifier)})`,
-  );
+	const pos = await device.evaluate<R3FScreenPosition | null>(
+		`${bridge}?.${methodName}(${JSON.stringify(identifier)})`,
+	);
 
-  if (!pos) {
-    throw new Error(`R3F object not found (${method}): ${identifier}`);
-  }
-  if (!pos.isOnScreen) {
-    throw new Error(`R3F object is off-screen: ${identifier}`);
-  }
-  if (!pos.isInFrustum) {
-    throw new Error(`R3F object is outside camera frustum: ${identifier}`);
-  }
+	if (!pos) {
+		throw new Error(`R3F object not found (${method}): ${identifier}`);
+	}
+	if (!pos.isOnScreen) {
+		throw new Error(`R3F object is off-screen: ${identifier}`);
+	}
+	if (!pos.isInFrustum) {
+		throw new Error(`R3F object is outside camera frustum: ${identifier}`);
+	}
 
-  return pos;
+	return pos;
 }
 
 /**
@@ -79,12 +79,12 @@ export async function getR3FObjectPosition(
  * @param options - Lookup options
  */
 export async function tapR3FObject(
-  device: Device,
-  identifier: string,
-  options?: R3FLookupOptions,
+	device: Device,
+	identifier: string,
+	options?: R3FLookupOptions,
 ): Promise<void> {
-  const pos = await getR3FObjectPosition(device, identifier, options);
-  await device.pointer.tap(pos.x, pos.y);
+	const pos = await getR3FObjectPosition(device, identifier, options);
+	await device.pointer.tap(pos.x, pos.y);
 }
 
 /**
@@ -99,26 +99,26 @@ export async function tapR3FObject(
  * @throws Error if no hit or unexpected object hit
  */
 export async function verifyHitTarget(
-  device: Device,
-  x: number,
-  y: number,
-  expectedTestId: string,
-  canvasId?: string,
+	device: Device,
+	x: number,
+	y: number,
+	expectedTestId: string,
+	canvasId?: string,
 ): Promise<R3FHitResult> {
-  const bridge = canvasId
-    ? `globalThis.__RN_DRIVER_R3F_REGISTRY__['${canvasId}']`
-    : "globalThis.__RN_DRIVER_R3F__";
+	const bridge = canvasId
+		? `globalThis.__RN_DRIVER_R3F_REGISTRY__?.[${JSON.stringify(canvasId)}]`
+		: "globalThis.__RN_DRIVER_R3F__";
 
-  const hit = await device.evaluate<R3FHitResult | null>(`${bridge}?.hitTest(${x}, ${y})`);
+	const hit = await device.evaluate<R3FHitResult | null>(`${bridge}?.hitTest(${x}, ${y})`);
 
-  if (!hit) {
-    throw new Error(`No hit at (${x}, ${y})`);
-  }
-  if (hit.testId !== expectedTestId) {
-    throw new Error(
-      `Expected to hit testId='${expectedTestId}' but hit '${hit.name}' (testId: ${hit.testId})`,
-    );
-  }
+	if (!hit) {
+		throw new Error(`No hit at (${x}, ${y})`);
+	}
+	if (hit.testId !== expectedTestId) {
+		throw new Error(
+			`Expected to hit testId='${expectedTestId}' but hit '${hit.name}' (testId: ${hit.testId})`,
+		);
+	}
 
-  return hit;
+	return hit;
 }

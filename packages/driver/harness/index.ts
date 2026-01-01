@@ -269,6 +269,12 @@ export type RNDriverGlobal = {
    */
   isTracing: () => boolean;
 
+  /**
+   * Add a trace event (used by driver to inject evaluate events).
+   * Only adds event if tracing is active.
+   */
+  traceEvent: (type: DriverEventType, data?: Record<string, unknown>) => void;
+
   /** Internal state (for debugging) */
   _internal: {
     handlers: Map<string, TouchHandler>;
@@ -402,6 +408,8 @@ function installHarness(): void {
       try {
         handler(event);
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        traceEvent("error", { source: "touchHandler", message: errorMessage });
         console.error("[RN_DRIVER] Handler error:", error);
       }
     }
@@ -461,33 +469,75 @@ function installHarness(): void {
   const lifecycleNative = tryRequireNativeModule<LifecycleNative>("RNDriverLifecycle");
   const touchNativeModule = tryRequireNativeModule<TouchNativeModule>("RNDriverTouchInjector");
 
-  // Create bridges with fallback error handling
+  // Create bridges with fallback error handling and tracing
   const viewTree: ViewTreeBridge = viewTreeNative
     ? {
-        findByTestId: (testId) => viewTreeNative.findByTestId(testId),
-        findByText: (text, exact = false) => viewTreeNative.findByText(text, exact),
-        findByRole: (role, name) => viewTreeNative.findByRole(role, name ?? null),
-        findAllByTestId: (testId) => viewTreeNative.findAllByTestId(testId),
-        findAllByText: (text, exact = false) => viewTreeNative.findAllByText(text, exact),
-        findAllByRole: (role, name) => viewTreeNative.findAllByRole(role, name ?? null),
+        findByTestId: (testId) => {
+          traceEvent("locator:find", { method: "findByTestId", testId });
+          return viewTreeNative.findByTestId(testId);
+        },
+        findByText: (text, exact = false) => {
+          traceEvent("locator:find", { method: "findByText", text, exact });
+          return viewTreeNative.findByText(text, exact);
+        },
+        findByRole: (role, name) => {
+          traceEvent("locator:find", { method: "findByRole", role, name });
+          return viewTreeNative.findByRole(role, name ?? null);
+        },
+        findAllByTestId: (testId) => {
+          traceEvent("locator:find", { method: "findAllByTestId", testId });
+          return viewTreeNative.findAllByTestId(testId);
+        },
+        findAllByText: (text, exact = false) => {
+          traceEvent("locator:find", { method: "findAllByText", text, exact });
+          return viewTreeNative.findAllByText(text, exact);
+        },
+        findAllByRole: (role, name) => {
+          traceEvent("locator:find", { method: "findAllByRole", role, name });
+          return viewTreeNative.findAllByRole(role, name ?? null);
+        },
         getBounds: (handle) => viewTreeNative.getBounds(handle),
         isVisible: (handle) => viewTreeNative.isVisible(handle),
         isEnabled: (handle) => viewTreeNative.isEnabled(handle),
         refresh: (handle) => viewTreeNative.refresh(handle),
-        tap: (handle) => viewTreeNative.tap(handle),
+        tap: (handle) => {
+          traceEvent("locator:tap", { handle });
+          return viewTreeNative.tap(handle);
+        },
       }
     : {
-        findByTestId: async () => notSupportedResult("RNDriverViewTree"),
-        findByText: async () => notSupportedResult("RNDriverViewTree"),
-        findByRole: async () => notSupportedResult("RNDriverViewTree"),
-        findAllByTestId: async () => notSupportedResult("RNDriverViewTree"),
-        findAllByText: async () => notSupportedResult("RNDriverViewTree"),
-        findAllByRole: async () => notSupportedResult("RNDriverViewTree"),
+        findByTestId: async (testId) => {
+          traceEvent("locator:find", { method: "findByTestId", testId });
+          return notSupportedResult("RNDriverViewTree");
+        },
+        findByText: async (text, exact) => {
+          traceEvent("locator:find", { method: "findByText", text, exact });
+          return notSupportedResult("RNDriverViewTree");
+        },
+        findByRole: async (role, name) => {
+          traceEvent("locator:find", { method: "findByRole", role, name });
+          return notSupportedResult("RNDriverViewTree");
+        },
+        findAllByTestId: async (testId) => {
+          traceEvent("locator:find", { method: "findAllByTestId", testId });
+          return notSupportedResult("RNDriverViewTree");
+        },
+        findAllByText: async (text, exact) => {
+          traceEvent("locator:find", { method: "findAllByText", text, exact });
+          return notSupportedResult("RNDriverViewTree");
+        },
+        findAllByRole: async (role, name) => {
+          traceEvent("locator:find", { method: "findAllByRole", role, name });
+          return notSupportedResult("RNDriverViewTree");
+        },
         getBounds: async () => notSupportedResult("RNDriverViewTree"),
         isVisible: async () => notSupportedResult("RNDriverViewTree"),
         isEnabled: async () => notSupportedResult("RNDriverViewTree"),
         refresh: async () => notSupportedResult("RNDriverViewTree"),
-        tap: async () => notSupportedResult("RNDriverViewTree"),
+        tap: async (handle) => {
+          traceEvent("locator:tap", { handle });
+          return notSupportedResult("RNDriverViewTree");
+        },
       };
 
   // captureElement uses native captureElement when available (shared handle registry),
@@ -733,6 +783,8 @@ function installHarness(): void {
       return tracingState.active;
     },
 
+    traceEvent,
+
     _internal: {
       handlers,
       get lastPosition() {
@@ -767,10 +819,12 @@ function installHarness(): void {
       (method: ConsoleMethodName) =>
       (...args: unknown[]): void => {
         originalConsole?.[method](...args);
-        traceEvent("console", {
-          level: method,
-          message: args.map((a) => String(a)).join(" "),
-        });
+        const message = args.map((a) => String(a)).join(" ");
+        traceEvent("console", { level: method, message });
+        // Also emit error event for console.error calls
+        if (method === "error") {
+          traceEvent("error", { source: "console", message });
+        }
       };
 
     console.log = createPatchedMethod("log");

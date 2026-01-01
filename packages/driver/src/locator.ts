@@ -216,18 +216,33 @@ export class LocatorImpl implements Locator {
 
   /**
    * Check if element exists and is visible.
+   * Throws if view-tree module is not installed.
    */
   async isVisible(): Promise<boolean> {
     const result = await this.query();
-    return result.success && result.data.visible;
+    if (!result.success) {
+      // Throw on NOT_SUPPORTED to surface missing module error
+      if (result.code === "NOT_SUPPORTED") {
+        throw new LocatorError(result.error, result.code);
+      }
+      // NOT_FOUND means element doesn't exist, so not visible
+      return false;
+    }
+    return result.data.visible;
   }
 
   /**
    * Get element bounds in logical points.
+   * Returns null if element not found.
+   * Throws if view-tree module is not installed.
    */
   async bounds(): Promise<ElementBounds | null> {
     const result = await this.query();
     if (!result.success) {
+      // Throw on NOT_SUPPORTED to surface missing module error
+      if (result.code === "NOT_SUPPORTED") {
+        throw new LocatorError(result.error, result.code);
+      }
       return null;
     }
     return result.data.bounds;

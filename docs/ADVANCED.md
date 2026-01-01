@@ -402,9 +402,16 @@ All coordinates throughout the driver are in **logical points** (not physical pi
 - Origin (0, 0) is the top-left corner of the screen
 - Values match React Native's coordinate system
 - To convert to pixels, multiply by `metrics.pixelRatio`
+- All API returns use logical points: `Locator.bounds()`, `getWindowMetrics()`, pointer coordinates
 
 ```typescript
 const metrics = await device.getWindowMetrics();
 const logicalX = 100;
 const physicalX = logicalX * metrics.pixelRatio;
+
+// Locator bounds are also in logical points
+const button = device.getByTestId("submit");
+const bounds = await button.bounds();
+console.log("Button at:", bounds.x, bounds.y); // Logical points
+console.log("Button size:", bounds.width, bounds.height); // Logical points
 ```
