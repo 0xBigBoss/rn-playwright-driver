@@ -1,6 +1,6 @@
 import { test as base } from "@playwright/test";
 import { createDevice, type RNDevice, type RNDeviceOptions } from "./device";
-import type { Device } from "./types";
+import type { Device, TouchBackendType } from "./types";
 
 const DEFAULT_METRO_URL = "http://localhost:8081";
 const DEFAULT_TIMEOUT = 30_000;
@@ -12,6 +12,45 @@ function parseTimeout(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
+}
+
+/**
+ * Valid touch backend types for validation.
+ */
+const VALID_TOUCH_BACKENDS: ReadonlySet<TouchBackendType> = new Set([
+  "xctest",
+  "instrumentation",
+  "native-module",
+  "cli",
+  "harness",
+]);
+
+/**
+ * Parse touch backend from environment variable.
+ * Supports either a single backend name to force, or a comma-separated order.
+ */
+function parseTouchBackend(
+  value: string | undefined,
+): { mode: "force"; backend: TouchBackendType } | { order: TouchBackendType[] } | undefined {
+  if (!value) return undefined;
+
+  const parts = value.split(",").map((s) => s.trim().toLowerCase());
+
+  // Validate all parts are valid backend types
+  for (const part of parts) {
+    if (!VALID_TOUCH_BACKENDS.has(part as TouchBackendType)) {
+      console.warn(
+        `Invalid touch backend: ${part}. Valid options: ${[...VALID_TOUCH_BACKENDS].join(", ")}`,
+      );
+      return undefined;
+    }
+  }
+
+  // Single value = force mode, multiple = order preference
+  if (parts.length === 1) {
+    return { mode: "force", backend: parts[0] as TouchBackendType };
+  }
+  return { order: parts as TouchBackendType[] };
 }
 
 /**
@@ -37,6 +76,8 @@ export type RNWorkerFixtures = {
  * - RN_DEVICE_ID: Device ID to connect to
  * - RN_DEVICE_NAME: Device name to match (substring, case-insensitive)
  * - RN_TIMEOUT: Request timeout in ms (default: 30000)
+ * - RN_TOUCH_BACKEND: Touch backend to use (e.g., 'harness' to force harness backend,
+ *                     or 'harness,native-module' for preference order)
  *
  * Usage in test files:
  * ```ts
@@ -67,6 +108,12 @@ export const test = base.extend<RNTestFixtures, RNWorkerFixtures>({
       const deviceName = process.env.RN_DEVICE_NAME;
       if (deviceName) {
         options.deviceName = deviceName;
+      }
+
+      // Configure touch backend if specified
+      const touchBackend = parseTouchBackend(process.env.RN_TOUCH_BACKEND);
+      if (touchBackend) {
+        options.touch = touchBackend;
       }
 
       await use(options);

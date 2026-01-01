@@ -1,17 +1,11 @@
-# TODO - Examples Restructure and E2E Coverage
+# TODO - E2E Touch Backend Fix
 
 ## Completed
 - [x] Previous: Core primitives implementation (iteration 1-N)
 - [x] Move example/ to examples/basic-app/
 - [x] Update root package.json workspaces to "examples/*"
 - [x] Rename example package to examples-basic-app
-- [x] Reorganize E2E specs into categorical folders:
-  - assertions/ (matchers.spec.ts)
-  - core/ (capabilities.spec.ts)
-  - integration/ (counter.spec.ts)
-  - locators/ (chaining.spec.ts)
-  - pointer/ (basic.spec.ts, paths.spec.ts)
-  - primitives/ (window-metrics.spec.ts, frame-timing.spec.ts, tracing.spec.ts, touch-backend.spec.ts)
+- [x] Reorganize E2E specs into categorical folders
 - [x] Add primitives/window-metrics.spec.ts - getWindowMetrics() tests
 - [x] Add primitives/frame-timing.spec.ts - getFrameCount(), waitForRaf(), waitForFrameCount() tests
 - [x] Add primitives/tracing.spec.ts - startTracing(), stopTracing() tests
@@ -19,19 +13,24 @@
 - [x] Add pointer/paths.spec.ts - dragPath(), movePath() tests
 - [x] Add core/capabilities.spec.ts - capabilities() tests
 - [x] Run bun run check - all checks passed
+- [x] Configure touch backend via RN_TOUCH_BACKEND env var
+- [x] Add parseTouchBackend() to test fixture
+- [x] Set RN_TOUCH_BACKEND=harness in examples-basic-app test:e2e script
+- [x] Rebuild driver package to include new test fixture code
+- [x] Run E2E tests - all 107 tests passed
 
 ## In Progress
 (none)
 
 ## Pending
-- [ ] Run E2E tests (requires Metro + simulator - not available in current environment)
+- [ ] Commit all changes
 
 ## Blocked
-- [ ] E2E test execution blocked: Metro bundler and iOS simulator not running
+(none)
 
 ## Notes
-- Workspace migrated from "example" to "examples/*"
-- All new spec files follow the same pattern as existing specs
-- Copy-paste detection shows acceptable duplication (~4-5%) which is expected for test files with similar structure
-- E2E tests require: `cd examples/basic-app && bun start` (Metro) and a booted iOS simulator
-- To run E2E tests manually: `cd examples/basic-app && bun run test:e2e`
+- RN_TOUCH_BACKEND env var supports:
+  - Single value: force mode (e.g., "harness" forces harness backend)
+  - Comma-separated: order preference (e.g., "harness,native-module")
+- Package rebuild required after modifying packages/driver/src/test.ts
+- Copy-paste detection shows acceptable duplication (~5-6%) which is expected for test files

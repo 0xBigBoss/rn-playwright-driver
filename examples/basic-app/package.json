@@ -14,7 +14,7 @@
     "knip": "knip",
     "cpd": "jscpd .",
     "check": "bun run typecheck && bun run knip && bun run cpd && bun run lint",
-    "test:e2e": "playwright test",
+    "test:e2e": "RN_TOUCH_BACKEND=harness playwright test",
     "prepare": "lefthook install"
   },
   "dependencies": {
